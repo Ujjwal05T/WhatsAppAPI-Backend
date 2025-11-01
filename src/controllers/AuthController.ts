@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { UserService, IRegistrationData, ILoginData } from '../services/UserService.js';
 import { WhatsAppAccountService } from '../services/WhatsAppAccountService.js';
-import { initializeQRClient } from '../whatsapp/index.js';
+import { initializeQRClient, getPendingQRCode } from '../whatsapp/index.js';
 import { getPendingSession, storePendingSession } from '../services/legacyAccountManager.js';
 
 export class AuthController {
@@ -416,6 +416,7 @@ export class AuthController {
         user: {
           id: user.id,
           mobile: user.mobile,
+          apiKey: user.apiKey,
           createdAt: user.createdAt,
           lastLogin: user.lastLogin,
           isActive: user.isActive
@@ -425,6 +426,54 @@ export class AuthController {
 
     } catch (error) {
       console.error('Error getting user profile:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to get user profile';
+
+      res.status(500).json({
+        success: false,
+        error: errorMessage
+      });
+    }
+  }
+
+  // Get user profile by API key (for frontend use)
+  static async getProfileByApiKey(req: Request, res: Response): Promise<void> {
+    try {
+      const apiKey = req.headers['x-api-key'] as string;
+
+      if (!apiKey) {
+        res.status(401).json({
+          success: false,
+          error: 'API key is required'
+        });
+        return;
+      }
+
+      const user = await UserService.validateApiKey(apiKey);
+      if (!user) {
+        res.status(401).json({
+          success: false,
+          error: 'Invalid API key'
+        });
+        return;
+      }
+
+      const stats = await WhatsAppAccountService.getUserWhatsAppStatistics(user.id);
+
+      res.status(200).json({
+        success: true,
+        user: {
+          id: user.id,
+          mobile: user.mobile,
+          apiKey: user.apiKey,
+          createdAt: user.createdAt,
+          lastLogin: user.lastLogin,
+          isActive: user.isActive
+        },
+        statistics: stats
+      });
+
+    } catch (error) {
+      console.error('Error getting user profile by API key:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to get user profile';
 
       res.status(500).json({
@@ -449,22 +498,238 @@ export class AuthController {
 
       const accounts = await WhatsAppAccountService.getUserWhatsAppAccounts(parseInt(userId));
 
-      res.status(200).json({
-        success: true,
-        accounts: accounts.map(account => ({
-          accountToken: account.accountToken,
-          phoneNumber: account.phoneNumber,
-          whatsappName: account.whatsappName,
-          isConnected: account.isConnected,
-          createdAt: account.createdAt
-        })),
-        totalAccounts: accounts.length,
-        connectedAccounts: accounts.filter(acc => acc.isConnected).length
-      });
+      res.status(200).json(accounts.map(account => ({
+        id: account.id,
+        userId: account.userId,
+        accountToken: account.accountToken,
+        phoneNumber: account.phoneNumber,
+        whatsappName: account.whatsappName,
+        isConnected: account.isConnected,
+        createdAt: account.createdAt
+      })));
 
     } catch (error) {
       console.error('Error getting user WhatsApp accounts:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to get WhatsApp accounts';
+
+      res.status(500).json({
+        success: false,
+        error: errorMessage
+      });
+    }
+  }
+
+  // Get user's connected WhatsApp accounts
+  static async getUserConnectedAccounts(req: Request, res: Response): Promise<void> {
+    try {
+      const { userId } = req.params;
+
+      if (!userId) {
+        res.status(400).json({
+          success: false,
+          error: 'User ID is required'
+        });
+        return;
+      }
+
+      const accounts = await WhatsAppAccountService.getUserWhatsAppAccounts(parseInt(userId));
+      const connectedAccounts = accounts.filter(account => account.isConnected);
+
+      res.status(200).json(connectedAccounts.map(account => ({
+        id: account.id,
+        userId: account.userId,
+        accountToken: account.accountToken,
+        phoneNumber: account.phoneNumber,
+        whatsappName: account.whatsappName,
+        isConnected: account.isConnected,
+        createdAt: account.createdAt
+      })));
+
+    } catch (error) {
+      console.error('Error getting user connected WhatsApp accounts:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to get connected WhatsApp accounts';
+
+      res.status(500).json({
+        success: false,
+        error: errorMessage
+      });
+    }
+  }
+
+  // Create new WhatsApp account for user
+  static async createWhatsAppAccount(req: Request, res: Response): Promise<void> {
+    try {
+      const { userId } = req.body;
+
+      if (!userId) {
+        res.status(400).json({
+          success: false,
+          error: 'User ID is required'
+        });
+        return;
+      }
+
+      // Get user from request (added by apiKeyMiddleware)
+      const user = (req as any).user;
+      if (!user || user.id !== parseInt(userId)) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied: You can only create accounts for yourself'
+        });
+        return;
+      }
+
+      // Create WhatsApp account for this user
+      const { account, accountToken } = await WhatsAppAccountService.createWhatsAppAccount(parseInt(userId));
+
+      // Initialize WhatsApp client for this account
+      await initializeQRClient(accountToken);
+
+      res.status(201).json({
+        account: {
+          id: account.id,
+          userId: account.userId,
+          accountToken: accountToken,
+          phoneNumber: account.phoneNumber,
+          whatsappName: account.whatsappName,
+          isConnected: account.isConnected,
+          createdAt: account.createdAt
+        },
+        accountToken: accountToken
+      });
+
+    } catch (error) {
+      console.error('Error creating WhatsApp account:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create WhatsApp account';
+
+      res.status(500).json({
+        success: false,
+        error: errorMessage
+      });
+    }
+  }
+
+  // Get QR code for WhatsApp account
+  static async getQRCode(req: Request, res: Response): Promise<void> {
+    try {
+      const { accountToken } = req.params;
+
+      if (!accountToken) {
+        res.status(400).json({
+          success: false,
+          error: 'Account token is required'
+        });
+        return;
+      }
+
+      // Check if WhatsApp account exists
+      const whatsappAccount = await WhatsAppAccountService.getWhatsAppAccount(accountToken);
+      if (!whatsappAccount) {
+        res.status(404).json({
+          success: false,
+          error: 'WhatsApp account not found'
+        });
+        return;
+      }
+
+      // Check if already connected
+      if (whatsappAccount.isConnected) {
+        res.status(200).json({
+          success: true,
+          qrCode: null,
+          accountToken: accountToken,
+          isConnected: true,
+          message: 'Account is already connected'
+        });
+        return;
+      }
+
+      // Get API key from request (added by middleware)
+      const apiKey = req.headers['x-api-key'] as string;
+      if (!apiKey) {
+        res.status(401).json({
+          success: false,
+          error: 'API key is required'
+        });
+        return;
+      }
+
+      // Try to get existing QR code from pending sessions
+      let qrCode = getPendingQRCode(accountToken);
+
+      // If no QR code exists, initialize WhatsApp client to generate one
+      if (!qrCode) {
+        console.log(`[${accountToken}] No QR code found, initializing WhatsApp client...`);
+
+        // IMPORTANT: Store pending session BEFORE initializing QR client
+        // This is needed so that when the QR is scanned, we can update the database
+        storePendingSession(accountToken, apiKey);
+        console.log(`[${accountToken}] ✅ Pending session stored with API key`);
+
+        // Initialize the client (this will generate QR code asynchronously)
+        await initializeQRClient(accountToken);
+
+        // Wait a bit for QR code to be generated (Baileys generates it asynchronously)
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Try to get QR code again
+        qrCode = getPendingQRCode(accountToken);
+      }
+
+      res.status(200).json({
+        success: true,
+        qrCode: qrCode || null,
+        accountToken: accountToken,
+        isConnected: false,
+        message: qrCode ? 'QR code ready' : 'QR code is being generated, please retry in a moment'
+      });
+
+    } catch (error) {
+      console.error('Error getting QR code:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to get QR code';
+
+      res.status(500).json({
+        success: false,
+        error: errorMessage
+      });
+    }
+  }
+
+  // Get WhatsApp connection status
+  static async getWhatsAppStatus(req: Request, res: Response): Promise<void> {
+    try {
+      const { accountToken } = req.params;
+
+      if (!accountToken) {
+        res.status(400).json({
+          success: false,
+          error: 'Account token is required'
+        });
+        return;
+      }
+
+      // Check if WhatsApp account exists and is connected
+      const whatsappAccount = await WhatsAppAccountService.getWhatsAppAccount(accountToken);
+
+      if (!whatsappAccount) {
+        res.status(404).json({
+          success: false,
+          error: 'WhatsApp account not found'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        isConnected: whatsappAccount.isConnected,
+        phoneNumber: whatsappAccount.phoneNumber,
+        whatsappName: whatsappAccount.whatsappName,
+        accountToken: accountToken
+      });
+
+    } catch (error) {
+      console.error('Error checking WhatsApp status:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to check WhatsApp status';
 
       res.status(500).json({
         success: false,

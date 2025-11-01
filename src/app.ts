@@ -4,12 +4,23 @@ import { DatabaseService } from './config/index.js';
 import { AuthController } from './controllers/AuthController.js';
 import { MessagingController } from './controllers/MessagingController.js';
 import { authMiddleware } from './authMiddleware.js';
+import { apiKeyMiddleware } from './apiKeyMiddleware.js';
 import { userAuthMiddleware } from './middleware/userAuth.js';
+import cors from 'cors'
 
 const app = express();
+
+// CORS configuration
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
+}));
+
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 
 // Initialize database and accounts on startup
 DatabaseService.connect().then(() => {
@@ -77,11 +88,53 @@ app.get('/api/auth/user-token-status/:accountToken', AuthController.checkConnect
 app.get('/api/auth/user/:userId/profile', userAuthMiddleware, AuthController.getUserProfile);
 
 /**
+ * @route   GET /api/auth/profile
+ * @desc    Get user profile by API key (for frontend)
+ * @access  Private (Requires API Key in header)
+ */
+app.get('/api/auth/profile', apiKeyMiddleware, AuthController.getProfileByApiKey);
+
+/**
  * @route   GET /api/auth/user/:userId/whatsapp-accounts
  * @desc    Get user's WhatsApp accounts
  * @access  Private (Requires API Key)
  */
 app.get('/api/auth/user/:userId/whatsapp-accounts', userAuthMiddleware, AuthController.getUserWhatsAppAccounts);
+
+/**
+ * @route   GET /api/whatsapp/accounts/:userId
+ * @desc    Get user's WhatsApp accounts (frontend compatible)
+ * @access  Private (Requires API Key)
+ */
+app.get('/api/whatsapp/accounts/:userId', apiKeyMiddleware, AuthController.getUserWhatsAppAccounts);
+
+/**
+ * @route   GET /api/whatsapp/connected/:userId
+ * @desc    Get user's connected WhatsApp accounts
+ * @access  Private (Requires API Key)
+ */
+app.get('/api/whatsapp/connected/:userId', apiKeyMiddleware, AuthController.getUserConnectedAccounts);
+
+/**
+ * @route   POST /api/whatsapp/create-account
+ * @desc    Create new WhatsApp account for user
+ * @access  Private (Requires API Key)
+ */
+app.post('/api/whatsapp/create-account', apiKeyMiddleware, AuthController.createWhatsAppAccount);
+
+/**
+ * @route   GET /api/whatsapp/qr/:accountToken
+ * @desc    Get QR code for WhatsApp account
+ * @access  Private (Requires API Key)
+ */
+app.get('/api/whatsapp/qr/:accountToken', apiKeyMiddleware, AuthController.getQRCode);
+
+/**
+ * @route   GET /api/whatsapp/status/:accountToken
+ * @desc    Check WhatsApp connection status
+ * @access  Private (Requires API Key)
+ */
+app.get('/api/whatsapp/status/:accountToken', apiKeyMiddleware, AuthController.getWhatsAppStatus);
 
 // =================================================================
 // MESSAGING ENDPOINTS
@@ -181,6 +234,7 @@ app.get('/api/docs', (_req, res) => {
         'GET /api/auth/qr-user/:accountToken': 'Display QR code',
         'GET /api/auth/user-token-status/:accountToken': 'Check connection status',
         'GET /api/auth/user/:userId/profile': 'Get user profile',
+        'GET /api/auth/profile': 'Get user profile by API key (frontend)',
         'GET /api/auth/user/:userId/whatsapp-accounts': 'Get user WhatsApp accounts'
       },
       messaging: {

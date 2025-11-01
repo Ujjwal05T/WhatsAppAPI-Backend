@@ -11,7 +11,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 
 // This map will store active Baileys sockets, with the token as the key.
-const clients = new Map<string, WASocket>();
+export const clients = new Map<string, WASocket>();
 export const qrCodes = new Map<string, string>(); // Store QR codes for web display
 
 /**

@@ -41,16 +41,30 @@ export async function createAccountFromWhatsApp(sessionId: string, socket: any):
     const phoneNumber = socket.user?.id?.split(':')[0] || '';
     const whatsappName = socket.user?.name || 'Unknown';
 
-    // Find the account by session (this would need the account token)
-    // For now, we'll just clean up the pending session
+    // sessionId is actually the accountToken
+    const accountToken = sessionId;
+
+    // Update the WhatsApp account in database with connection details
+    console.log(`[${accountToken}] 🔄 Updating database with phone: ${phoneNumber}, name: ${whatsappName}`);
+    await WhatsAppAccountService.updateWhatsAppConnectionDetails(
+      accountToken,
+      phoneNumber,
+      whatsappName
+    );
+
+    console.log(`✅ WhatsApp account connected in database: ${phoneNumber} (${whatsappName})`);
+
+    // Clean up the pending session
     pendingSessions.delete(sessionId);
 
-    console.log(`✅ WhatsApp account connected: ${phoneNumber} (${whatsappName})`);
-
+    // Return account details for logging
     return {
+      token: accountToken,
       sessionId,
       phoneNumber,
       whatsappName,
+      apiKey: pendingSession.apiKey,
+      name: whatsappName,
       connected: true
     };
 

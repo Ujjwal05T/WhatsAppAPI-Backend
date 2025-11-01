@@ -10,9 +10,14 @@ import { Boom } from '@hapi/boom';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { createAccountFromWhatsApp, getPendingSession } from '../services/legacyAccountManager.js';
+import { clients } from './manager.js';
 
 // QR codes for pending sessions
 const pendingQRCodes = new Map<string, string>();
+
+// Track reconnection attempts to prevent infinite loops
+const reconnectionAttempts = new Map<string, number>();
+const MAX_RECONNECTION_ATTEMPTS = 5;
 
 /**
  * Ensure temporary sessions directory exists
@@ -95,6 +100,9 @@ export async function initializeQRClient(sessionId: string): Promise<void> {
           console.log(`[${sessionId}] 📱 Phone: ${sock.user?.id?.split(':')[0] || 'Unknown'}`);
           console.log(`[${sessionId}] 👤 Name: ${sock.user?.name || 'Unknown'}`);
 
+          // Reset reconnection counter on successful connection
+          reconnectionAttempts.delete(sessionId);
+
           try {
             // Create account from successful WhatsApp authentication
             const pendingSession = getPendingSession(sessionId);
@@ -107,15 +115,24 @@ export async function initializeQRClient(sessionId: string): Promise<void> {
             console.log(`[${sessionId}] 🔐 Creating account from WhatsApp authentication...`);
             const account = await createAccountFromWhatsApp(sessionId, sock);
 
-            console.log(`\n[${sessionId}] 🎉 Account Created Successfully!`);
-            console.log(`[${sessionId}] 📋 Account Token: ${account.token}`);
-            console.log(`[${sessionId}] 🔑 API Key: ${account.apiKey}`);
-            console.log(`[${sessionId}] 👤 Name: ${account.name}`);
-            console.log(`[${sessionId}] 📱 Phone: ${account.phoneNumber}`);
-            console.log('================================================\n');
+            console.log(`\n================================================`);
+            console.log(`🎉 WHATSAPP ACCOUNT CONNECTED SUCCESSFULLY!`);
+            console.log(`================================================`);
+            console.log(`📋 Account Token: ${account.token}`);
+            console.log(`🔑 API Key: ${account.apiKey}`);
+            console.log(`👤 Name: ${account.name}`);
+            console.log(`📱 Phone: ${account.phoneNumber}`);
+            console.log(`================================================`);
+            console.log(`\n✅ You can now send messages using:`);
+            console.log(`   Account Token: ${account.token}`);
+            console.log(`   API Key: ${account.apiKey}`);
+            console.log(`================================================\n`);
 
             // Store the connected client with the account token
             // This will be used for message sending
+            clients.set(account.token, sock);
+            console.log(`[${account.token}] 💾 Client stored for message sending`);
+
             // We'll need to move the session from temp-sessions to the main sessions directory
             await moveToMainSessions(sessionId, account.token);
 
@@ -140,9 +157,32 @@ export async function initializeQRClient(sessionId: string): Promise<void> {
           }
           console.log('================================================\n');
 
-          if (!shouldReconnect) {
+          if (shouldReconnect) {
+            // Check reconnection attempts
+            const attempts = reconnectionAttempts.get(sessionId) || 0;
+            if (attempts >= MAX_RECONNECTION_ATTEMPTS) {
+              console.log(`[${sessionId}] ❌ Max reconnection attempts (${MAX_RECONNECTION_ATTEMPTS}) reached`);
+              pendingQRCodes.delete(sessionId);
+              reconnectionAttempts.delete(sessionId);
+              await cleanupTempSession(sessionId);
+              break;
+            }
+
+            // Increment reconnection counter
+            reconnectionAttempts.set(sessionId, attempts + 1);
+
+            // Reconnect after a short delay
+            console.log(`[${sessionId}] 🔄 Reconnecting in 3 seconds... (Attempt ${attempts + 1}/${MAX_RECONNECTION_ATTEMPTS})`);
+            setTimeout(() => {
+              console.log(`[${sessionId}] 🔄 Attempting reconnection...`);
+              initializeQRClient(sessionId).catch(err => {
+                console.error(`[${sessionId}] ❌ Reconnection failed:`, err);
+              });
+            }, 3000);
+          } else {
             console.log(`[${sessionId}] 🔒 Account creation failed or cancelled`);
             pendingQRCodes.delete(sessionId);
+            reconnectionAttempts.delete(sessionId);
             await cleanupTempSession(sessionId);
           }
           break;

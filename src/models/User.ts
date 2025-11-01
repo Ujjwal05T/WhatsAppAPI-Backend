@@ -1,4 +1,5 @@
-import * as sql from 'mssql';
+import sql from 'mssql';
+import { DatabaseService } from '../config/index.js';
 
 export interface IUser {
   id: number;
@@ -26,121 +27,140 @@ export class UserModel {
 
   // Create a new user
   static async create(userData: ICreateUserData): Promise<IUser> {
-    const pool = await sql.connect({
-      server: 'localhost\\SQLEXPRESS',
-      database: 'WhatsAppAPI',
-      options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        trustedConnection: true,
-        enableArithAbort: true,
-        instanceName: 'SQLEXPRESS'
-      }
-    });
+    const pool = await DatabaseService.getPool();
 
     try {
-      const result = await pool.request()
+      console.log('🔍 Creating user with data:', { mobile: userData.mobile });
+
+      // Step 1: Insert the user
+      const insertQuery = `
+        INSERT INTO ${this.tableName} (mobile, password_hash, api_key)
+        VALUES (@mobile, @passwordHash, @apiKey)
+      `;
+
+      console.log('🔍 Executing INSERT query:', insertQuery);
+
+      await pool.request()
         .input('mobile', sql.VarChar, userData.mobile)
         .input('passwordHash', sql.VarChar, userData.passwordHash)
         .input('apiKey', sql.VarChar, userData.apiKey)
-        .query(`
-          INSERT INTO ${this.tableName} (mobile, password_hash, api_key)
-          OUTPUT
-            id, mobile, password_hash as passwordHash, api_key as apiKey,
-            created_at as createdAt, last_login as lastLogin, is_active as isActive
-          VALUES (@mobile, @passwordHash, @apiKey)
-        `);
+        .query(insertQuery);
 
+      // Step 2: Get the inserted user
+      const selectQuery = `
+        SELECT TOP 1
+          id, mobile, password_hash as passwordHash, api_key as apiKey,
+          created_at as createdAt, last_login as lastLogin, is_active as isActive
+        FROM ${this.tableName}
+        WHERE mobile = @mobile
+        ORDER BY id DESC
+      `;
+
+      console.log('🔍 Getting inserted user:', selectQuery);
+
+      const result = await pool.request()
+        .input('mobile', sql.VarChar, userData.mobile)
+        .query(selectQuery);
+
+      if (result.recordset.length === 0) {
+        throw new Error('Failed to retrieve created user');
+      }
+
+      console.log('🔍 User created successfully:', result.recordset[0]);
       return result.recordset[0] as IUser;
     } catch (error) {
       console.error('Error in User.create:', error);
       throw error;
-    } finally {
-      await pool.close();
     }
   }
 
   // Find user by mobile number
   static async findByMobile(mobile: string): Promise<IUser | null> {
-    const pool = await sql.connect({
-      server: 'localhost\\SQLEXPRESS',
-      database: 'WhatsAppAPI',
-      options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        trustedConnection: true,
-        enableArithAbort: true,
-        instanceName: 'SQLEXPRESS'
-      }
-    });
+    const maxRetries = 3;
+    let lastError: Error;
 
-    try {
-      const result = await pool.request()
-        .input('mobile', sql.VarChar, mobile)
-        .query(`
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      let pool: sql.ConnectionPool;
+
+      try {
+        pool = await DatabaseService.getPool();
+        console.log(`🔍 Searching for mobile: ${mobile} in table: ${this.tableName} (attempt ${attempt})`);
+
+        const query = `
           SELECT
             id, mobile, password_hash as passwordHash, api_key as apiKey,
             created_at as createdAt, last_login as lastLogin, is_active as isActive
           FROM ${this.tableName}
           WHERE mobile = @mobile
-        `);
+        `;
 
-      return result.recordset.length > 0 ? result.recordset[0] as IUser : null;
-    } catch (error) {
-      console.error('Error in User.findByMobile:', error);
-      throw error;
-    } finally {
-      await pool.close();
+        console.log('🔍 Executing query:', query);
+
+        const result = await pool.request()
+          .input('mobile', sql.VarChar, mobile)
+          .query(query);
+
+        console.log('🔍 Query result:', result.recordset.length, 'rows found');
+        return result.recordset.length > 0 ? result.recordset[0] as IUser : null;
+      } catch (error) {
+        lastError = error as Error;
+        console.error(`Error in User.findByMobile (attempt ${attempt}/${maxRetries}):`, error);
+
+        // If this is not the last attempt, wait before retrying
+        if (attempt < maxRetries) {
+          console.log(`⏳ Retrying in ${attempt * 1000}ms...`);
+          await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+        }
+      }
     }
+
+    // All retries failed
+    console.error('❌ All retry attempts failed in User.findByMobile');
+    throw lastError!;
   }
 
   // Find user by API key
   static async findByApiKey(apiKey: string): Promise<IUser | null> {
-    const pool = await sql.connect({
-      server: 'localhost\\SQLEXPRESS',
-      database: 'WhatsAppAPI',
-      options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        trustedConnection: true,
-        enableArithAbort: true,
-        instanceName: 'SQLEXPRESS'
+    const maxRetries = 3;
+    let lastError: Error;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      let pool: sql.ConnectionPool;
+
+      try {
+        pool = await DatabaseService.getPool();
+
+        const result = await pool.request()
+          .input('apiKey', sql.VarChar, apiKey)
+          .query(`
+            SELECT
+              id, mobile, password_hash as passwordHash, api_key as apiKey,
+              created_at as createdAt, last_login as lastLogin, is_active as isActive
+            FROM ${this.tableName}
+            WHERE api_key = @apiKey AND is_active = 1
+          `);
+
+        return result.recordset.length > 0 ? result.recordset[0] as IUser : null;
+      } catch (error) {
+        lastError = error as Error;
+        console.error(`Error in User.findByApiKey (attempt ${attempt}/${maxRetries}):`, error);
+
+        // If this is not the last attempt, wait before retrying
+        if (attempt < maxRetries) {
+          console.log(`⏳ Retrying in ${attempt * 1000}ms...`);
+          await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+        }
       }
-    });
-
-    try {
-      const result = await pool.request()
-        .input('apiKey', sql.VarChar, apiKey)
-        .query(`
-          SELECT
-            id, mobile, password_hash as passwordHash, api_key as apiKey,
-            created_at as createdAt, last_login as lastLogin, is_active as isActive
-          FROM ${this.tableName}
-          WHERE api_key = @apiKey AND is_active = 1
-        `);
-
-      return result.recordset.length > 0 ? result.recordset[0] as IUser : null;
-    } catch (error) {
-      console.error('Error in User.findByApiKey:', error);
-      throw error;
-    } finally {
-      await pool.close();
     }
+
+    // All retries failed
+    console.error('❌ All retry attempts failed in User.findByApiKey');
+    throw lastError!;
   }
 
   // Find user by ID
   static async findById(id: number): Promise<IUser | null> {
-    const pool = await sql.connect({
-      server: 'localhost\\SQLEXPRESS',
-      database: 'WhatsAppAPI',
-      options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        trustedConnection: true,
-        enableArithAbort: true,
-        instanceName: 'SQLEXPRESS'
-      }
-    });
+    const pool = await DatabaseService.getPool();
 
     try {
       const result = await pool.request()
@@ -157,24 +177,12 @@ export class UserModel {
     } catch (error) {
       console.error('Error in User.findById:', error);
       throw error;
-    } finally {
-      await pool.close();
     }
   }
 
   // Update user
   static async update(id: number, updateData: IUpdateUserData): Promise<boolean> {
-    const pool = await sql.connect({
-      server: 'localhost\\SQLEXPRESS',
-      database: 'WhatsAppAPI',
-      options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        trustedConnection: true,
-        enableArithAbort: true,
-        instanceName: 'SQLEXPRESS'
-      }
-    });
+    const pool = await DatabaseService.getPool();
 
     try {
       let query = `UPDATE ${this.tableName} SET `;
@@ -201,8 +209,6 @@ export class UserModel {
     } catch (error) {
       console.error('Error in User.update:', error);
       throw error;
-    } finally {
-      await pool.close();
     }
   }
 
@@ -213,17 +219,7 @@ export class UserModel {
 
   // Check if mobile number exists
   static async mobileExists(mobile: string): Promise<boolean> {
-    const pool = await sql.connect({
-      server: 'localhost\\SQLEXPRESS',
-      database: 'WhatsAppAPI',
-      options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        trustedConnection: true,
-        enableArithAbort: true,
-        instanceName: 'SQLEXPRESS'
-      }
-    });
+    const pool = await DatabaseService.getPool();
 
     try {
       const result = await pool.request()
@@ -234,24 +230,12 @@ export class UserModel {
     } catch (error) {
       console.error('Error in User.mobileExists:', error);
       throw error;
-    } finally {
-      await pool.close();
     }
   }
 
   // Check if API key exists
   static async apiKeyExists(apiKey: string): Promise<boolean> {
-    const pool = await sql.connect({
-      server: 'localhost\\SQLEXPRESS',
-      database: 'WhatsAppAPI',
-      options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        trustedConnection: true,
-        enableArithAbort: true,
-        instanceName: 'SQLEXPRESS'
-      }
-    });
+    const pool = await DatabaseService.getPool();
 
     try {
       const result = await pool.request()
@@ -262,8 +246,6 @@ export class UserModel {
     } catch (error) {
       console.error('Error in User.apiKeyExists:', error);
       throw error;
-    } finally {
-      await pool.close();
     }
   }
 
@@ -274,17 +256,7 @@ export class UserModel {
 
   // Get all users (for admin purposes)
   static async findAll(limit = 50, offset = 0): Promise<IUser[]> {
-    const pool = await sql.connect({
-      server: 'localhost\\SQLEXPRESS',
-      database: 'WhatsAppAPI',
-      options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        trustedConnection: true,
-        enableArithAbort: true,
-        instanceName: 'SQLEXPRESS'
-      }
-    });
+    const pool = await DatabaseService.getPool();
 
     try {
       const result = await pool.request()
@@ -303,8 +275,6 @@ export class UserModel {
     } catch (error) {
       console.error('Error in User.findAll:', error);
       throw error;
-    } finally {
-      await pool.close();
     }
   }
 }
