@@ -1,0 +1,6 @@
+.env
+/build
+/node_modules
+/sessions
+/temp-sessions
+accounts.json

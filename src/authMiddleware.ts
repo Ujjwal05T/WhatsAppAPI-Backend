@@ -1,0 +1,83 @@
+import { Request, Response, NextFunction } from 'express';
+import { UserService } from './services/UserService.js';
+import { WhatsAppAccountService } from './services/WhatsAppAccountService.js';
+
+export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  try {
+    const apiKey = req.headers['x-api-key'] as string;
+
+    // Extract token from body, params, or query
+    const token = req.body.token || req.params.token || req.query.token as string;
+
+    if (!apiKey) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized: API Key is required in X-API-Key header'
+      });
+    }
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request: Account token is required'
+      });
+    }
+
+    // Validate user and API key
+    const user = await UserService.validateApiKey(apiKey);
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized: Invalid API Key'
+      });
+    }
+
+    // Validate WhatsApp account connection
+    const connectionResult = await WhatsAppAccountService.validateWhatsAppConnection(token);
+    if (!connectionResult.success) {
+      return res.status(401).json({
+        success: false,
+        error: connectionResult.error || 'WhatsApp account validation failed'
+      });
+    }
+
+    const { account } = connectionResult;
+
+    // Add account to request for use in routes
+    req.account = {
+      token: account.accountToken,
+      apiKey: user.apiKey,
+      userId: user.id,
+      phoneNumber: account.phoneNumber,
+      whatsappName: account.whatsappName,
+      isConnected: account.isConnected,
+      createdAt: account.createdAt
+    };
+
+    next();
+
+  } catch (error) {
+    console.error('Authentication middleware error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Authentication failed'
+    });
+  }
+}
+
+// Extend Express Request type to include account
+declare global {
+  namespace Express {
+    interface Request {
+      account?: {
+        token: string;
+        apiKey: string;
+        userId: number;
+        phoneNumber?: string;
+        whatsappName?: string;
+        isConnected: boolean;
+        createdAt: Date;
+      };
+    }
+  }
+}
