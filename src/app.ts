@@ -6,6 +6,7 @@ import { MessagingController } from './controllers/MessagingController.js';
 import { authMiddleware } from './authMiddleware.js';
 import { apiKeyMiddleware } from './apiKeyMiddleware.js';
 import { userAuthMiddleware } from './middleware/userAuth.js';
+import { upload } from './middleware/upload.js';
 import cors from 'cors'
 
 const app = express();
@@ -143,16 +144,31 @@ app.get('/api/whatsapp/status/:accountToken', apiKeyMiddleware, AuthController.g
 /**
  * @route   POST /api/send-message
  * @desc    Sends a WhatsApp message using Baileys
- * @access  Private (Requires API Key and Account Token)
+ * @access  Private (Requires X-API-Key header and Authorization Bearer token)
+ * @headers X-API-Key: your_api_key
+ *          Authorization: Bearer account_token
  * @body    {
  *            "to": "+1234567890",
  *            "message": "Hello!" OR
  *            "template": "welcome",
- *            "templateData": {"name": "John"},
- *            "token": "account-token"
+ *            "templateData": {"name": "John"}
  *          }
  */
 app.post('/api/send-message', authMiddleware, MessagingController.sendMessage);
+
+/**
+ * @route   POST /api/send-media
+ * @desc    Sends a WhatsApp media message (image, video, audio, document)
+ * @access  Private (Requires X-API-Key header and Authorization Bearer token)
+ * @headers X-API-Key: your_api_key
+ *          Authorization: Bearer account_token
+ * @body    FormData {
+ *            "to": "+1234567890",
+ *            "file": <media file>,
+ *            "caption": "Optional caption for image/video/document"
+ *          }
+ */
+app.post('/api/send-media', upload.single('file'), authMiddleware, MessagingController.sendMedia);
 
 /**
  * @route   GET /api/templates
@@ -210,6 +226,7 @@ app.get('/api/health', (_req, res) => {
       userRegistration: true,
       whatsappIntegration: true,
       messageTemplates: true,
+      mediaMessages: true,
       rateLimiting: true,
       databaseStorage: true
     }
@@ -238,7 +255,8 @@ app.get('/api/docs', (_req, res) => {
         'GET /api/auth/user/:userId/whatsapp-accounts': 'Get user WhatsApp accounts'
       },
       messaging: {
-        'POST /api/send-message': 'Send WhatsApp message',
+        'POST /api/send-message': 'Send WhatsApp text message',
+        'POST /api/send-media': 'Send WhatsApp media message (image, video, audio, document)',
         'GET /api/templates': 'List message templates',
         'POST /api/templates': 'Create message template',
         'DELETE /api/templates/:name': 'Delete message template',
@@ -282,7 +300,8 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/auth/qr-user/:accountToken - Display QR for user`);
   console.log(`   GET  /api/auth/user-token-status/:accountToken - Check connection status`);
   console.log(`\n💬 MESSAGING:`);
-  console.log(`   POST /api/send-message - Send WhatsApp messages`);
+  console.log(`   POST /api/send-message - Send WhatsApp text messages`);
+  console.log(`   POST /api/send-media - Send WhatsApp media (image/video/audio/document)`);
   console.log(`   GET  /api/templates - List message templates`);
   console.log(`   POST /api/templates - Create message templates`);
   console.log(`   GET  /api/account/:token/status - Check account status`);

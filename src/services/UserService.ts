@@ -2,8 +2,10 @@ import bcrypt from 'bcrypt';
 import { UserModel, IUser, ICreateUserData } from '../models/User.js';
 
 export interface IRegistrationData {
+  name: string;
   mobile: string;
   password: string;
+  role?: 'USER' | 'ADMIN';
 }
 
 export interface ILoginData {
@@ -66,7 +68,15 @@ export class UserService {
 
   // Register new user
   static async registerUser(registrationData: IRegistrationData): Promise<IRegistrationResult> {
-    const { mobile, password } = registrationData;
+    const { name, mobile, password, role } = registrationData;
+
+    // Validate name
+    if (!name || name.trim().length < 2) {
+      throw new Error('Name must be at least 2 characters long');
+    }
+    if (name.length > 100) {
+      throw new Error('Name must be less than 100 characters');
+    }
 
     // Validate mobile number
     if (!this.validateMobileNumber(mobile)) {
@@ -91,9 +101,11 @@ export class UserService {
 
     // Create user
     const userData: ICreateUserData = {
+      name: name.trim(),
       mobile,
       passwordHash,
-      apiKey
+      apiKey,
+      role: role || 'USER'
     };
 
     const user = await UserModel.create(userData);

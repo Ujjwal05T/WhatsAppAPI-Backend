@@ -1,16 +1,15 @@
 import makeWASocket, {
   DisconnectReason,
-  useMultiFileAuthState,
   WASocket,
   BaileysEventMap,
 } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 import qrcodeGen from 'qrcode';
 import { Boom } from '@hapi/boom';
-import { promises as fs } from 'fs';
-import * as path from 'path';
 import { createAccountFromWhatsApp, getPendingSession } from '../services/legacyAccountManager.js';
 import { clients, initializeClient } from './manager.js';
+import { useAuthStateFromDB, deleteAuthStateFromDB } from './dbAuthState.js';
+import { prisma } from '../config/index.js';
 
 // QR codes for pending sessions
 const pendingQRCodes = new Map<string, string>();
@@ -18,19 +17,6 @@ const pendingQRCodes = new Map<string, string>();
 // Track reconnection attempts to prevent infinite loops
 const reconnectionAttempts = new Map<string, number>();
 const MAX_RECONNECTION_ATTEMPTS = 5;
-
-/**
- * Ensure temporary sessions directory exists
- */
-async function ensureTempSessionsDir(): Promise<void> {
-  const sessionsDir = path.join(process.cwd(), 'temp-sessions');
-  try {
-    await fs.access(sessionsDir);
-  } catch (error) {
-    console.log('Creating temp sessions directory...');
-    await fs.mkdir(sessionsDir, { recursive: true });
-  }
-}
 
 /**
  * Generate QR code as base64 for web display
@@ -50,11 +36,11 @@ async function generateQRBase64(qrString: string): Promise<string> {
 export async function initializeQRClient(sessionId: string): Promise<void> {
   console.log(`[${sessionId}] Initializing QR WhatsApp client...`);
 
-  // Ensure temp sessions directory exists
-  await ensureTempSessionsDir();
+  // Track if account was successfully created to prevent reconnection after intentional closure
+  let accountCreated = false;
 
-  const sessionPath = path.join(process.cwd(), 'temp-sessions', sessionId);
-  const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+  // Use database-based auth state with temporary session ID
+  const { state, saveCreds } = await useAuthStateFromDB(`temp_${sessionId}`);
 
   const sock = makeWASocket({
     auth: state,
@@ -128,23 +114,72 @@ export async function initializeQRClient(sessionId: string): Promise<void> {
             console.log(`   API Key: ${account.apiKey}`);
             console.log(`================================================\n`);
 
-            // Store the connected client with the account token
-            // This will be used for message sending
-            clients.set(account.token, sock);
-            console.log(`[${account.token}] 💾 Client stored for message sending`);
+            // Migrate session from temp to permanent token
+            console.log(`[${sessionId}] 🔄 Migrating session to permanent token...`);
 
-            // Move the session from temp-sessions to the main sessions directory
-            await moveToMainSessions(sessionId, account.token);
+            // Get temp session and copy to permanent token
+            const tempSession = await prisma.session.findUnique({
+              where: { accountToken: `temp_${sessionId}` }
+            });
 
-            // Close the temp socket to prevent it from writing to old location
+            if (tempSession) {
+              // Create permanent session with the temp's auth state
+              await prisma.session.create({
+                data: {
+                  accountToken: account.token,
+                  authState: tempSession.authState
+                }
+              }).catch(async (err) => {
+                // If already exists, update it
+                if (err.code === 'P2002') {
+                  await prisma.session.update({
+                    where: { accountToken: account.token },
+                    data: { authState: tempSession.authState }
+                  });
+                }
+              });
+              console.log(`[${account.token}] ✅ Session migrated successfully`);
+            }
+
+            // Delete the temporary session from database
+            await deleteAuthStateFromDB(`temp_${sessionId}`);
+            console.log(`[${sessionId}] 🗑️  Temporary session cleaned up from database`);
+
+            // Close the temp socket
             console.log(`[${account.token}] 🔄 Closing temporary connection...`);
             sock.end(undefined);
-            clients.delete(account.token);
 
-            // Initialize new client from the permanent sessions directory
-            console.log(`[${account.token}] 🔄 Reinitializing from permanent location...`);
-            await initializeClient(account.token);
+            // Initialize new client with the permanent account token and wait for it to connect
+            console.log(`[${account.token}] 🔄 Initializing client with permanent session...`);
+            const permanentSocket = await initializeClient(account.token);
+
+            // Wait for permanent client to connect (max 30 seconds)
+            console.log(`[${account.token}] ⏳ Waiting for permanent client to connect...`);
+            await new Promise<void>((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                reject(new Error('Timeout waiting for permanent client to connect'));
+              }, 30000);
+
+              const connectionHandler = (update: Partial<BaileysEventMap['connection.update']>) => {
+                if (update.connection === 'open') {
+                  clearTimeout(timeout);
+                  permanentSocket.ev.off('connection.update', connectionHandler);
+                  console.log(`[${account.token}] ✅ Permanent client connected successfully!`);
+                  resolve();
+                } else if (update.connection === 'close') {
+                  clearTimeout(timeout);
+                  permanentSocket.ev.off('connection.update', connectionHandler);
+                  reject(new Error('Permanent client connection closed before opening'));
+                }
+              };
+
+              permanentSocket.ev.on('connection.update', connectionHandler);
+            });
+
             console.log(`[${account.token}] ✅ Client ready for messaging!`);
+
+            // Mark account as successfully created to prevent temp session reconnection
+            accountCreated = true;
 
           } catch (error) {
             console.error(`[${sessionId}] ❌ Failed to create account:`, error);
@@ -156,7 +191,7 @@ export async function initializeQRClient(sessionId: string): Promise<void> {
 
         case 'close':
           const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+          const shouldReconnect = statusCode !== DisconnectReason.loggedOut && !accountCreated;
 
           console.log(`\n[${sessionId}] ❌ Connection closed`);
           console.log(`[${sessionId}] 📊 Status Code: ${statusCode || 'Unknown'}`);
@@ -166,6 +201,14 @@ export async function initializeQRClient(sessionId: string): Promise<void> {
             console.log(`[${sessionId}] 💥 Error: ${lastDisconnect.error.message}`);
           }
           console.log('================================================\n');
+
+          // If account was created, don't reconnect the temp session
+          if (accountCreated) {
+            console.log(`[${sessionId}] ✅ Account created successfully, temp session closed normally`);
+            pendingQRCodes.delete(sessionId);
+            reconnectionAttempts.delete(sessionId);
+            break;
+          }
 
           if (shouldReconnect) {
             // Check reconnection attempts
@@ -226,56 +269,13 @@ export async function initializeQRClient(sessionId: string): Promise<void> {
 }
 
 /**
- * Move temporary session to main sessions directory
- */
-async function moveToMainSessions(sessionId: string, accountToken: string): Promise<void> {
-  try {
-    const tempPath = path.join(process.cwd(), 'temp-sessions', sessionId);
-    const mainPath = path.join(process.cwd(), 'sessions', accountToken);
-
-    // Ensure main sessions directory exists (including the account subdirectory)
-    await fs.mkdir(mainPath, { recursive: true });
-
-    // Copy files from temp to main
-    try {
-      const files = await fs.readdir(tempPath);
-
-      if (files.length === 0) {
-        console.log(`[${sessionId}] ⚠️  No session files to move`);
-        return;
-      }
-
-      console.log(`[${sessionId}] 📁 Moving ${files.length} session files to main directory...`);
-
-      for (const file of files) {
-        const tempFile = path.join(tempPath, file);
-        const mainFile = path.join(mainPath, file);
-        await fs.copyFile(tempFile, mainFile);
-      }
-
-      // Clean up temp session after successful copy
-      await fs.rm(tempPath, { recursive: true, force: true });
-
-      console.log(`[${sessionId}] ✅ Session successfully moved to: sessions/${accountToken}/`);
-    } catch (error) {
-      console.error(`[${sessionId}] ❌ Error copying session files:`, error);
-      throw error;
-    }
-  } catch (error) {
-    console.error(`[${sessionId}] ❌ Failed to move session:`, error);
-    // Don't throw - let the connection continue even if move fails
-  }
-}
-
-/**
- * Clean up temporary session
+ * Clean up temporary session from database
  */
 async function cleanupTempSession(sessionId: string): Promise<void> {
   try {
-    const tempPath = path.join(process.cwd(), 'temp-sessions', sessionId);
-    await fs.rm(tempPath, { recursive: true, force: true });
+    await deleteAuthStateFromDB(`temp_${sessionId}`);
     pendingQRCodes.delete(sessionId);
-    console.log(`[${sessionId}] 🗑️  Cleaned up temporary session`);
+    console.log(`[${sessionId}] 🗑️  Cleaned up temporary session from database`);
   } catch (error) {
     // Ignore cleanup errors
   }

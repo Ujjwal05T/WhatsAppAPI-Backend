@@ -4,8 +4,6 @@
 import { WhatsAppAccountService } from './WhatsAppAccountService.js';
 import { WhatsAppAccountModel } from '../models/WhatsAppAccount.js';
 import { initializeClient } from '../whatsapp/manager.js';
-import { promises as fs } from 'fs';
-import * as path from 'path';
 
 // Temporary session storage for QR-based account creation
 const pendingSessions = new Map<string, {
@@ -16,7 +14,7 @@ const pendingSessions = new Map<string, {
 
 // Initialize any existing accounts on startup
 export async function initializeAccounts(): Promise<void> {
-  console.log('\n🔄 Starting WhatsApp session restoration...');
+  console.log('\n🔄 Starting WhatsApp session restoration from database...');
   console.log('================================================');
 
   try {
@@ -30,36 +28,26 @@ export async function initializeAccounts(): Promise<void> {
       return;
     }
 
-    // Check sessions directory
-    const sessionsDir = path.join(process.cwd(), 'sessions');
-    let sessionDirs: string[] = [];
+    // Import database auth functions
+    const { authStateExists } = await import('../whatsapp/dbAuthState.js');
 
-    try {
-      await fs.access(sessionsDir);
-      const dirContents = await fs.readdir(sessionsDir);
-      sessionDirs = dirContents;
-      console.log(`📁 Found ${sessionDirs.length} session directories in sessions/`);
-    } catch (error) {
-      console.log('⚠️  Sessions directory not found or empty');
-      console.log('================================================\n');
-      return;
-    }
-
-    // Restore sessions
+    // Restore sessions from database
     let restored = 0;
     let failed = 0;
 
     for (const account of connectedAccounts) {
       const accountToken = account.accountToken;
-      const hasSessionDir = sessionDirs.includes(accountToken);
 
-      if (!hasSessionDir) {
-        console.log(`\n❌ [${accountToken}] No session directory found`);
+      // Check if session exists in database
+      const hasSession = await authStateExists(accountToken);
+
+      if (!hasSession) {
+        console.log(`\n❌ [${accountToken}] No session found in database`);
         console.log(`   Phone: ${account.phoneNumber || 'N/A'}`);
         console.log(`   Name: ${account.whatsappName || 'N/A'}`);
-        console.log(`   Action: Marking as disconnected in database`);
+        console.log(`   Action: Marking as disconnected`);
 
-        // Mark as disconnected in database since session files are missing
+        // Mark as disconnected in database since session is missing
         try {
           await WhatsAppAccountService.markAsDisconnected(accountToken);
           console.log(`   ✓ Marked as disconnected`);
@@ -71,31 +59,13 @@ export async function initializeAccounts(): Promise<void> {
         continue;
       }
 
-      // Check if session directory has files
-      const sessionPath = path.join(sessionsDir, accountToken);
+      // Initialize the client from database session
       try {
-        const sessionFiles = await fs.readdir(sessionPath);
-        if (sessionFiles.length === 0) {
-          console.log(`\n⚠️  [${accountToken}] Session directory is empty`);
-          console.log(`   Action: Marking as disconnected`);
-          await WhatsAppAccountService.markAsDisconnected(accountToken);
-          failed++;
-          continue;
-        }
-      } catch (error) {
-        console.log(`\n❌ [${accountToken}] Cannot read session directory`);
-        await WhatsAppAccountService.markAsDisconnected(accountToken);
-        failed++;
-        continue;
-      }
-
-      // Initialize the client
-      try {
-        console.log(`\n🔄 [${accountToken}] Restoring session...`);
+        console.log(`\n🔄 [${accountToken}] Restoring session from database...`);
         console.log(`   Phone: ${account.phoneNumber || 'N/A'}`);
         console.log(`   Name: ${account.whatsappName || 'N/A'}`);
 
-        // Initialize Baileys client - this will restore the session
+        // Initialize Baileys client - this will load the session from database
         await initializeClient(accountToken);
 
         console.log(`   ✅ Session restoration initiated`);

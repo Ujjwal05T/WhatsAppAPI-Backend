@@ -1,31 +1,16 @@
 import makeWASocket, {
   DisconnectReason,
-  useMultiFileAuthState,
   WASocket,
   BaileysEventMap,
 } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 import qrcodeGen from 'qrcode';
 import { Boom } from '@hapi/boom';
-import { promises as fs } from 'fs';
-import * as path from 'path';
+import { useAuthStateFromDB } from './dbAuthState.js';
 
 // This map will store active Baileys sockets, with the token as the key.
 export const clients = new Map<string, WASocket>();
 export const qrCodes = new Map<string, string>(); // Store QR codes for web display
-
-/**
- * Ensure sessions directory exists
- */
-async function ensureSessionsDir(): Promise<void> {
-  const sessionsDir = path.join(process.cwd(), 'sessions');
-  try {
-    await fs.access(sessionsDir);
-  } catch (error) {
-    console.log('Creating sessions directory...');
-    await fs.mkdir(sessionsDir, { recursive: true });
-  }
-}
 
 /**
  * Generate QR code as base64 for web display
@@ -42,14 +27,11 @@ async function generateQRBase64(qrString: string): Promise<string> {
 /**
  * Initialize WhatsApp client with enhanced QR handling
  */
-export async function initializeClient(token: string): Promise<void> {
+export async function initializeClient(token: string): Promise<WASocket> {
   console.log(`[${token}] Initializing WhatsApp client...`);
 
-  // Ensure sessions directory exists
-  await ensureSessionsDir();
-
-  const sessionPath = path.join(process.cwd(), 'sessions', token);
-  const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+  // Use database-based auth state instead of file-based
+  const { state, saveCreds } = await useAuthStateFromDB(token);
 
   const sock = makeWASocket({
     auth: state,
@@ -96,6 +78,7 @@ export async function initializeClient(token: string): Promise<void> {
           console.log('================================================\n');
 
           clients.set(token, sock);
+          console.log(`[${token}] 📝 Client added to active clients map (Total: ${clients.size})`);
           qrCodes.delete(token); // Clear QR code after successful login
           break;
 
@@ -113,6 +96,7 @@ export async function initializeClient(token: string): Promise<void> {
           console.log('================================================\n');
 
           clients.delete(token);
+          console.log(`[${token}] 📝 Client removed from active clients map (Total: ${clients.size})`);
 
           // Reconnect logic
           if (shouldReconnect) {
@@ -152,6 +136,8 @@ export async function initializeClient(token: string): Promise<void> {
       console.error(`[${token}] 🌐 WebSocket error:`, error.message);
     });
   }
+
+  return sock;
 }
 
 export function getClient(token: string): WASocket | undefined {

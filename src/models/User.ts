@@ -1,37 +1,47 @@
 import { prisma } from '../config/index.js';
 
+export type UserRole = 'USER' | 'ADMIN';
+
 export interface IUser {
   id: number;
+  name: string;
   mobile: string;
   passwordHash: string;
   apiKey: string;
+  role: UserRole;
   createdAt: Date;
   lastLogin?: Date;
   isActive: boolean;
 }
 
 export interface ICreateUserData {
+  name: string;
   mobile: string;
   passwordHash: string;
   apiKey: string;
+  role?: UserRole;
 }
 
 export interface IUpdateUserData {
+  name?: string;
   lastLogin?: Date;
   isActive?: boolean;
+  role?: UserRole;
 }
 
 export class UserModel {
   // Create a new user
   static async create(userData: ICreateUserData): Promise<IUser> {
     try {
-      console.log('🔍 Creating user with data:', { mobile: userData.mobile });
+      console.log('🔍 Creating user with data:', { name: userData.name, mobile: userData.mobile });
 
       const user = await prisma.user.create({
         data: {
+          name: userData.name,
           mobile: userData.mobile,
           passwordHash: userData.passwordHash,
           apiKey: userData.apiKey,
+          role: userData.role || 'USER',
         },
       });
 

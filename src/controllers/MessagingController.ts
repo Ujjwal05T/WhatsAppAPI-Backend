@@ -3,6 +3,7 @@ import { validatePhoneNumber, validateMessage, checkRateLimit, formatToJID, huma
 import { getClient } from '../whatsapp/index.js';
 import { UserService } from '../services/UserService.js';
 import { WhatsAppAccountService } from '../services/WhatsAppAccountService.js';
+import { getMediaType } from '../middleware/upload.js';
 
 interface AuthenticatedRequest extends Request {
   user?: any;
@@ -187,6 +188,182 @@ export class MessagingController {
           errorMessage = 'WhatsApp connection lost. Please try again.';
         } else if (error.message.includes('timeout')) {
           errorMessage = 'Message sending timed out. Please try again.';
+        }
+      }
+
+      res.status(500).json({
+        success: false,
+        error: errorMessage,
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  // Send WhatsApp media message
+  static async sendMedia(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      // Debug logging
+      console.log('Request body:', req.body);
+      console.log('Request file:', req.file);
+      console.log('Content-Type:', req.headers['content-type']);
+
+      const to = req.body?.to;
+      const caption = req.body?.caption;
+      const file = req.file;
+
+      // Get account token from middleware
+      const token = req.account?.token;
+      if (!token) {
+        res.status(401).json({
+          success: false,
+          error: 'Unauthorized: Account token not found'
+        });
+        return;
+      }
+
+      // Validate required fields
+      if (!to) {
+        res.status(400).json({
+          success: false,
+          error: 'Recipient phone number is required'
+        });
+        return;
+      }
+
+      if (!file) {
+        res.status(400).json({
+          success: false,
+          error: 'Media file is required'
+        });
+        return;
+      }
+
+      // Validate phone number format
+      if (!validatePhoneNumber(to)) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid phone number format. Use: countrycode+number (e.g., 919876543210)'
+        });
+        return;
+      }
+
+      // Get account and user
+      const account = req.account;
+      const user = await UserService.getUserById(account.userId);
+
+      // Check rate limiting
+      const rateLimit = checkRateLimit(token);
+      if (!rateLimit.allowed) {
+        res.status(429).json({
+          success: false,
+          error: 'Rate limit exceeded. Please try again later.',
+          resetTime: rateLimit.resetTime
+        });
+        return;
+      }
+
+      // Get WhatsApp client
+      const client = getClient(token);
+      if (!client) {
+        res.status(503).json({
+          success: false,
+          error: 'WhatsApp client not available. Please try reconnecting.',
+          help: 'Start a new QR session: POST /api/auth/start-qr-with-user'
+        });
+        return;
+      }
+
+      // Format recipient ID
+      const jid = formatToJID(to);
+
+      // Determine media type
+      const mediaType = getMediaType(file.mimetype);
+
+      // Prepare media message
+      let messageContent: any;
+
+      if (mediaType === 'image') {
+        messageContent = {
+          image: file.buffer,
+          caption: caption || '',
+          mimetype: file.mimetype,
+          fileName: file.originalname
+        };
+      } else if (mediaType === 'video') {
+        messageContent = {
+          video: file.buffer,
+          caption: caption || '',
+          mimetype: file.mimetype,
+          fileName: file.originalname
+        };
+      } else if (mediaType === 'audio') {
+        messageContent = {
+          audio: file.buffer,
+          mimetype: file.mimetype,
+          ptt: false // Set to true for voice messages
+        };
+      } else if (mediaType === 'document') {
+        messageContent = {
+          document: file.buffer,
+          mimetype: file.mimetype,
+          fileName: file.originalname,
+          caption: caption || ''
+        };
+      }
+
+      // Send presence update
+      console.log(`[${token}] Sending ${mediaType} to ${to}...`);
+      await client.sendPresenceUpdate('composing', jid);
+      await humanDelay(); // Random delay
+      await client.sendPresenceUpdate('paused', jid);
+
+      // Send the media message
+      const sentMsg = await client.sendMessage(jid, messageContent);
+
+      if (!sentMsg || !sentMsg.key.id) {
+        throw new Error('Message sending failed - no message ID returned');
+      }
+
+      console.log(`[${token}] ${mediaType} sent successfully to ${to}. Message ID: ${sentMsg.key.id}`);
+
+      // Success response
+      res.status(200).json({
+        success: true,
+        messageId: sentMsg.key.id,
+        to: to,
+        mediaType: mediaType,
+        fileName: file.originalname,
+        fileSize: file.size,
+        mimeType: file.mimetype,
+        account: {
+          token: token,
+          user: {
+            mobile: user?.mobile,
+            name: account.whatsappName
+          }
+        },
+        rateLimitRemaining: rateLimit.remaining,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      console.error(`Failed to send media:`, {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+
+      let errorMessage = 'Failed to send media';
+      if (error instanceof Error) {
+        if (error.message.includes('not on WhatsApp')) {
+          errorMessage = 'Recipient is not on WhatsApp';
+        } else if (error.message.includes('phone number')) {
+          errorMessage = 'Invalid phone number format';
+        } else if (error.message.includes('connection')) {
+          errorMessage = 'WhatsApp connection lost. Please try again.';
+        } else if (error.message.includes('timeout')) {
+          errorMessage = 'Media sending timed out. Please try again.';
+        } else if (error.message.includes('File type')) {
+          errorMessage = error.message;
         }
       }
 
