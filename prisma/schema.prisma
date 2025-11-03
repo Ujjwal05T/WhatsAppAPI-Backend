@@ -1,0 +1,40 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              Int                @id @default(autoincrement())
+  mobile          String             @unique @db.VarChar(20)
+  passwordHash    String             @map("password_hash") @db.VarChar(255)
+  apiKey          String             @unique @map("api_key") @db.VarChar(100)
+  createdAt       DateTime           @default(now()) @map("created_at")
+  lastLogin       DateTime?          @map("last_login")
+  isActive        Boolean            @default(true) @map("is_active")
+  whatsappAccounts WhatsAppAccount[]
+
+  @@map("users")
+}
+
+model WhatsAppAccount {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @map("user_id")
+  accountToken  String   @unique @map("account_token") @db.VarChar(100)
+  phoneNumber   String?  @map("phone_number") @db.VarChar(20)
+  whatsappName  String?  @map("whatsapp_name") @db.VarChar(255)
+  isConnected   Boolean  @default(false) @map("is_connected")
+  createdAt     DateTime @default(now()) @map("created_at")
+  user          User     @relation(fields: [userId], references: [id])
+
+  @@map("whatsapp_accounts")
+}

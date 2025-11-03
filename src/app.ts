@@ -1,6 +1,6 @@
 import express from 'express';
 import { initializeAccounts } from './services/legacyAccountManager.js';
-import { DatabaseService } from './config/index.js';
+import { PrismaService } from './config/index.js';
 import { AuthController } from './controllers/AuthController.js';
 import { MessagingController } from './controllers/MessagingController.js';
 import { authMiddleware } from './authMiddleware.js';
@@ -23,7 +23,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 5000;
 
 // Initialize database and accounts on startup
-DatabaseService.connect().then(() => {
+PrismaService.initialize().then(() => {
   console.log('✅ Database connected successfully');
   initializeAccounts().catch(console.error);
 }).catch(console.error);

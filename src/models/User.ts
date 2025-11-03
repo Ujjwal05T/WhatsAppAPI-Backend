@@ -1,5 +1,4 @@
-import sql from 'mssql';
-import { DatabaseService } from '../config/index.js';
+import { prisma } from '../config/index.js';
 
 export interface IUser {
   id: number;
@@ -23,51 +22,21 @@ export interface IUpdateUserData {
 }
 
 export class UserModel {
-  private static tableName = 'Users';
-
   // Create a new user
   static async create(userData: ICreateUserData): Promise<IUser> {
-    const pool = await DatabaseService.getPool();
-
     try {
       console.log('🔍 Creating user with data:', { mobile: userData.mobile });
 
-      // Step 1: Insert the user
-      const insertQuery = `
-        INSERT INTO ${this.tableName} (mobile, password_hash, api_key)
-        VALUES (@mobile, @passwordHash, @apiKey)
-      `;
+      const user = await prisma.user.create({
+        data: {
+          mobile: userData.mobile,
+          passwordHash: userData.passwordHash,
+          apiKey: userData.apiKey,
+        },
+      });
 
-      console.log('🔍 Executing INSERT query:', insertQuery);
-
-      await pool.request()
-        .input('mobile', sql.VarChar, userData.mobile)
-        .input('passwordHash', sql.VarChar, userData.passwordHash)
-        .input('apiKey', sql.VarChar, userData.apiKey)
-        .query(insertQuery);
-
-      // Step 2: Get the inserted user
-      const selectQuery = `
-        SELECT TOP 1
-          id, mobile, password_hash as passwordHash, api_key as apiKey,
-          created_at as createdAt, last_login as lastLogin, is_active as isActive
-        FROM ${this.tableName}
-        WHERE mobile = @mobile
-        ORDER BY id DESC
-      `;
-
-      console.log('🔍 Getting inserted user:', selectQuery);
-
-      const result = await pool.request()
-        .input('mobile', sql.VarChar, userData.mobile)
-        .query(selectQuery);
-
-      if (result.recordset.length === 0) {
-        throw new Error('Failed to retrieve created user');
-      }
-
-      console.log('🔍 User created successfully:', result.recordset[0]);
-      return result.recordset[0] as IUser;
+      console.log('🔍 User created successfully:', user);
+      return user as IUser;
     } catch (error) {
       console.error('Error in User.create:', error);
       throw error;
@@ -80,28 +49,15 @@ export class UserModel {
     let lastError: Error;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      let pool: sql.ConnectionPool;
-
       try {
-        pool = await DatabaseService.getPool();
-        console.log(`🔍 Searching for mobile: ${mobile} in table: ${this.tableName} (attempt ${attempt})`);
+        console.log(`🔍 Searching for mobile: ${mobile} (attempt ${attempt})`);
 
-        const query = `
-          SELECT
-            id, mobile, password_hash as passwordHash, api_key as apiKey,
-            created_at as createdAt, last_login as lastLogin, is_active as isActive
-          FROM ${this.tableName}
-          WHERE mobile = @mobile
-        `;
+        const user = await prisma.user.findUnique({
+          where: { mobile },
+        });
 
-        console.log('🔍 Executing query:', query);
-
-        const result = await pool.request()
-          .input('mobile', sql.VarChar, mobile)
-          .query(query);
-
-        console.log('🔍 Query result:', result.recordset.length, 'rows found');
-        return result.recordset.length > 0 ? result.recordset[0] as IUser : null;
+        console.log('🔍 Query result:', user ? 'User found' : 'No user found');
+        return user as IUser | null;
       } catch (error) {
         lastError = error as Error;
         console.error(`Error in User.findByMobile (attempt ${attempt}/${maxRetries}):`, error);
@@ -125,22 +81,15 @@ export class UserModel {
     let lastError: Error;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      let pool: sql.ConnectionPool;
-
       try {
-        pool = await DatabaseService.getPool();
+        const user = await prisma.user.findUnique({
+          where: {
+            apiKey,
+            isActive: true,
+          },
+        });
 
-        const result = await pool.request()
-          .input('apiKey', sql.VarChar, apiKey)
-          .query(`
-            SELECT
-              id, mobile, password_hash as passwordHash, api_key as apiKey,
-              created_at as createdAt, last_login as lastLogin, is_active as isActive
-            FROM ${this.tableName}
-            WHERE api_key = @apiKey AND is_active = 1
-          `);
-
-        return result.recordset.length > 0 ? result.recordset[0] as IUser : null;
+        return user as IUser | null;
       } catch (error) {
         lastError = error as Error;
         console.error(`Error in User.findByApiKey (attempt ${attempt}/${maxRetries}):`, error);
@@ -160,20 +109,12 @@ export class UserModel {
 
   // Find user by ID
   static async findById(id: number): Promise<IUser | null> {
-    const pool = await DatabaseService.getPool();
-
     try {
-      const result = await pool.request()
-        .input('id', sql.Int, id)
-        .query(`
-          SELECT
-            id, mobile, password_hash as passwordHash, api_key as apiKey,
-            created_at as createdAt, last_login as lastLogin, is_active as isActive
-          FROM ${this.tableName}
-          WHERE id = @id
-        `);
+      const user = await prisma.user.findUnique({
+        where: { id },
+      });
 
-      return result.recordset.length > 0 ? result.recordset[0] as IUser : null;
+      return user as IUser | null;
     } catch (error) {
       console.error('Error in User.findById:', error);
       throw error;
@@ -182,30 +123,15 @@ export class UserModel {
 
   // Update user
   static async update(id: number, updateData: IUpdateUserData): Promise<boolean> {
-    const pool = await DatabaseService.getPool();
-
     try {
-      let query = `UPDATE ${this.tableName} SET `;
-      const updates: string[] = [];
-      const request = pool.request().input('id', sql.Int, id);
+      if (Object.keys(updateData).length === 0) return false;
 
-      if (updateData.lastLogin !== undefined) {
-        updates.push('last_login = @lastLogin');
-        request.input('lastLogin', sql.DateTime, updateData.lastLogin);
-      }
+      const result = await prisma.user.update({
+        where: { id },
+        data: updateData,
+      });
 
-      if (updateData.isActive !== undefined) {
-        updates.push('is_active = @isActive');
-        request.input('isActive', sql.Bit, updateData.isActive);
-      }
-
-      if (updates.length === 0) return false;
-
-      query += updates.join(', ') + ' WHERE id = @id';
-
-      const result = await request.query(query);
-      if (!result.rowsAffected[0]) return false;
-      return result.rowsAffected[0] > 0;
+      return !!result;
     } catch (error) {
       console.error('Error in User.update:', error);
       throw error;
@@ -219,14 +145,12 @@ export class UserModel {
 
   // Check if mobile number exists
   static async mobileExists(mobile: string): Promise<boolean> {
-    const pool = await DatabaseService.getPool();
-
     try {
-      const result = await pool.request()
-        .input('mobile', sql.VarChar, mobile)
-        .query(`SELECT 1 FROM ${this.tableName} WHERE mobile = @mobile`);
+      const count = await prisma.user.count({
+        where: { mobile },
+      });
 
-      return result.recordset.length > 0;
+      return count > 0;
     } catch (error) {
       console.error('Error in User.mobileExists:', error);
       throw error;
@@ -235,14 +159,12 @@ export class UserModel {
 
   // Check if API key exists
   static async apiKeyExists(apiKey: string): Promise<boolean> {
-    const pool = await DatabaseService.getPool();
-
     try {
-      const result = await pool.request()
-        .input('apiKey', sql.VarChar, apiKey)
-        .query(`SELECT 1 FROM ${this.tableName} WHERE api_key = @apiKey`);
+      const count = await prisma.user.count({
+        where: { apiKey },
+      });
 
-      return result.recordset.length > 0;
+      return count > 0;
     } catch (error) {
       console.error('Error in User.apiKeyExists:', error);
       throw error;
@@ -256,22 +178,16 @@ export class UserModel {
 
   // Get all users (for admin purposes)
   static async findAll(limit = 50, offset = 0): Promise<IUser[]> {
-    const pool = await DatabaseService.getPool();
-
     try {
-      const result = await pool.request()
-        .input('limit', sql.Int, limit)
-        .input('offset', sql.Int, offset)
-        .query(`
-          SELECT
-            id, mobile, password_hash as passwordHash, api_key as apiKey,
-            created_at as createdAt, last_login as lastLogin, is_active as isActive
-          FROM ${this.tableName}
-          ORDER BY created_at DESC
-          OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
-        `);
+      const users = await prisma.user.findMany({
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: limit,
+        skip: offset,
+      });
 
-      return result.recordset as IUser[];
+      return users as IUser[];
     } catch (error) {
       console.error('Error in User.findAll:', error);
       throw error;

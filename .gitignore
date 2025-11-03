@@ -4,3 +4,5 @@
 /sessions
 /temp-sessions
 accounts.json
+
+/src/generated/prisma

@@ -1,2 +1,2 @@
 // Export all configuration modules
-export * from './database.js';
+export { default as PrismaService, prisma } from './prisma.js';
