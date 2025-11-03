@@ -349,19 +349,19 @@ export class AuthController {
           },
           instructions: {
             step1: 'Use your API key in X-API-Key header',
-            step2: 'Include account token in request body',
+            step2: 'Include account token in Authorization Bearer header',
             step3: 'Send WhatsApp messages'
           },
           exampleMessage: {
             url: 'POST /api/send-message',
             headers: {
               'Content-Type': 'application/json',
-              'X-API-Key': user.apiKey
+              'X-API-Key': user.apiKey,
+              'Authorization': `Bearer ${accountToken}`
             },
             body: {
               to: '+1234567890',
-              message: 'Hello from my WhatsApp API!',
-              token: accountToken
+              message: 'Hello from my WhatsApp API!'
             }
           }
         });

@@ -255,6 +255,28 @@ export class WhatsAppAccountModel {
     }
   }
 
+  // Get all connected accounts (for session restoration on startup)
+  static async findAllConnected(): Promise<IWhatsAppAccount[]> {
+    const pool = await DatabaseService.getPool();
+
+    try {
+      const result = await pool.request()
+        .query(`
+          SELECT
+            id, userId, accountToken, phoneNumber, whatsappName,
+            isConnected, createdAt
+          FROM ${this.tableName}
+          WHERE isConnected = 1
+          ORDER BY createdAt DESC
+        `);
+
+      return result.recordset as IWhatsAppAccount[];
+    } catch (error) {
+      console.error('Error in WhatsAppAccount.findAllConnected:', error);
+      throw error;
+    }
+  }
+
   // Check if account token exists
   static async tokenExists(accountToken: string): Promise<boolean> {
     const pool = await DatabaseService.getPool();

@@ -10,7 +10,7 @@ import { Boom } from '@hapi/boom';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { createAccountFromWhatsApp, getPendingSession } from '../services/legacyAccountManager.js';
-import { clients } from './manager.js';
+import { clients, initializeClient } from './manager.js';
 
 // QR codes for pending sessions
 const pendingQRCodes = new Map<string, string>();
@@ -133,8 +133,18 @@ export async function initializeQRClient(sessionId: string): Promise<void> {
             clients.set(account.token, sock);
             console.log(`[${account.token}] 💾 Client stored for message sending`);
 
-            // We'll need to move the session from temp-sessions to the main sessions directory
+            // Move the session from temp-sessions to the main sessions directory
             await moveToMainSessions(sessionId, account.token);
+
+            // Close the temp socket to prevent it from writing to old location
+            console.log(`[${account.token}] 🔄 Closing temporary connection...`);
+            sock.end(undefined);
+            clients.delete(account.token);
+
+            // Initialize new client from the permanent sessions directory
+            console.log(`[${account.token}] 🔄 Reinitializing from permanent location...`);
+            await initializeClient(account.token);
+            console.log(`[${account.token}] ✅ Client ready for messaging!`);
 
           } catch (error) {
             console.error(`[${sessionId}] ❌ Failed to create account:`, error);
@@ -223,28 +233,37 @@ async function moveToMainSessions(sessionId: string, accountToken: string): Prom
     const tempPath = path.join(process.cwd(), 'temp-sessions', sessionId);
     const mainPath = path.join(process.cwd(), 'sessions', accountToken);
 
-    // Ensure main sessions directory exists
-    const sessionsDir = path.join(process.cwd(), 'sessions');
-    await fs.mkdir(sessionsDir, { recursive: true });
+    // Ensure main sessions directory exists (including the account subdirectory)
+    await fs.mkdir(mainPath, { recursive: true });
 
     // Copy files from temp to main
     try {
       const files = await fs.readdir(tempPath);
+
+      if (files.length === 0) {
+        console.log(`[${sessionId}] ⚠️  No session files to move`);
+        return;
+      }
+
+      console.log(`[${sessionId}] 📁 Moving ${files.length} session files to main directory...`);
+
       for (const file of files) {
         const tempFile = path.join(tempPath, file);
         const mainFile = path.join(mainPath, file);
         await fs.copyFile(tempFile, mainFile);
       }
 
-      // Clean up temp session
+      // Clean up temp session after successful copy
       await fs.rm(tempPath, { recursive: true, force: true });
 
-      console.log(`[${sessionId}] 📁 Session moved to: ${accountToken}`);
+      console.log(`[${sessionId}] ✅ Session successfully moved to: sessions/${accountToken}/`);
     } catch (error) {
-      console.log(`[${sessionId}] ⚠️  No session files to move, will create fresh session`);
+      console.error(`[${sessionId}] ❌ Error copying session files:`, error);
+      throw error;
     }
   } catch (error) {
     console.error(`[${sessionId}] ❌ Failed to move session:`, error);
+    // Don't throw - let the connection continue even if move fails
   }
 }
 

@@ -15,7 +15,6 @@ interface SendMessageRequest extends AuthenticatedRequest {
     message?: string;
     template?: string;
     templateData?: Record<string, any>;
-    token: string;
   };
 }
 
@@ -30,7 +29,17 @@ export class MessagingController {
   // Send WhatsApp message
   static async sendMessage(req: SendMessageRequest, res: Response): Promise<void> {
     try {
-      const { to, message, template, templateData, token } = req.body;
+      const { to, message, template, templateData } = req.body;
+
+      // Get account token from middleware (set by authMiddleware via Bearer token)
+      const token = req.account?.token;
+      if (!token) {
+        res.status(401).json({
+          success: false,
+          error: 'Unauthorized: Account token not found'
+        });
+        return;
+      }
 
       // Validate required fields
       if (!to) {
@@ -58,17 +67,9 @@ export class MessagingController {
         return;
       }
 
-      // Validate WhatsApp account connection
-      const connectionResult = await WhatsAppAccountService.validateWhatsAppConnection(token);
-      if (!connectionResult.success) {
-        res.status(401).json({
-          success: false,
-          error: connectionResult.error || 'WhatsApp connection validation failed'
-        });
-        return;
-      }
-
-      const { account, user } = connectionResult;
+      // Account is already validated by authMiddleware, get account and user from req.account
+      const account = req.account;
+      const user = await UserService.getUserById(account.userId);
 
       // Check rate limiting
       const rateLimit = checkRateLimit(token);
@@ -161,7 +162,7 @@ export class MessagingController {
           token: token,
           user: {
             mobile: user?.mobile,
-            name: account?.whatsappName
+            name: account.whatsappName
           }
         },
         messageType: template ? 'template' : 'direct',

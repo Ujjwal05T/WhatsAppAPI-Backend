@@ -6,8 +6,11 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   try {
     const apiKey = req.headers['x-api-key'] as string;
 
-    // Extract token from body, params, or query
-    const token = req.body.token || req.params.token || req.query.token as string;
+    // Extract account token from Authorization Bearer header
+    const authHeader = req.headers['authorization'] as string;
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.substring(7).trim()
+      : null;
 
     if (!apiKey) {
       return res.status(401).json({
@@ -17,9 +20,9 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     }
 
     if (!token) {
-      return res.status(400).json({
+      return res.status(401).json({
         success: false,
-        error: 'Bad Request: Account token is required'
+        error: 'Unauthorized: Account token is required in Authorization header (Bearer token)'
       });
     }
 
