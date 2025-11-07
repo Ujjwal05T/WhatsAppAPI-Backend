@@ -3,6 +3,7 @@ import { initializeAccounts } from './services/legacyAccountManager.js';
 import { PrismaService } from './config/index.js';
 import { AuthController } from './controllers/AuthController.js';
 import { MessagingController } from './controllers/MessagingController.js';
+import { WebhookController } from './controllers/WebhookController.js';
 import { authMiddleware } from './authMiddleware.js';
 import { apiKeyMiddleware } from './apiKeyMiddleware.js';
 import { userAuthMiddleware } from './middleware/userAuth.js';
@@ -205,6 +206,52 @@ app.get('/api/account/:token/status', authMiddleware, MessagingController.getAcc
  * @access  Private (Requires API Key)
  */
 app.get('/api/account/:token/messages', authMiddleware, MessagingController.getMessageHistory);
+
+// =================================================================
+// WEBHOOK ENDPOINTS
+// =================================================================
+
+/**
+ * @route   POST /api/webhooks/register
+ * @desc    Register a new webhook for incoming messages
+ * @access  Private (Requires API Key)
+ * @body    {
+ *            "accountToken": "your_account_token",
+ *            "url": "https://your-server.com/webhook",
+ *            "secret": "optional_secret_for_signature",
+ *            "events": ["message.received"]
+ *          }
+ */
+app.post('/api/webhooks/register', apiKeyMiddleware, WebhookController.registerWebhook);
+
+/**
+ * @route   GET /api/webhooks/:accountToken
+ * @desc    Get all webhooks for an account
+ * @access  Private (Requires API Key)
+ */
+app.get('/api/webhooks/:accountToken', apiKeyMiddleware, WebhookController.getWebhooks);
+
+/**
+ * @route   PATCH /api/webhooks/:id
+ * @desc    Update webhook (toggle active, change URL, etc.)
+ * @access  Private (Requires API Key)
+ * @body    { "isActive": false } or { "url": "new_url" }
+ */
+app.patch('/api/webhooks/:id', apiKeyMiddleware, WebhookController.updateWebhook);
+
+/**
+ * @route   DELETE /api/webhooks/:id
+ * @desc    Delete a webhook
+ * @access  Private (Requires API Key)
+ */
+app.delete('/api/webhooks/:id', apiKeyMiddleware, WebhookController.deleteWebhook);
+
+/**
+ * @route   POST /api/webhooks/:id/test
+ * @desc    Send a test payload to webhook
+ * @access  Private (Requires API Key)
+ */
+app.post('/api/webhooks/:id/test', apiKeyMiddleware, WebhookController.testWebhook);
 
 // =================================================================
 // UTILITY ENDPOINTS

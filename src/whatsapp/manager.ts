@@ -7,6 +7,7 @@ import qrcode from 'qrcode-terminal';
 import qrcodeGen from 'qrcode';
 import { Boom } from '@hapi/boom';
 import { useAuthStateFromDB } from './dbAuthState.js';
+import { WebhookService } from '../services/WebhookService.js';
 
 // This map will store active Baileys sockets, with the token as the key.
 export const clients = new Map<string, WASocket>();
@@ -121,12 +122,42 @@ export async function initializeClient(token: string): Promise<WASocket> {
   // Credentials update event
   sock.ev.on('creds.update', saveCreds);
 
-  // Set up message handler for debugging
-  sock.ev.on('messages.upsert', (m) => {
+  // Set up message handler for debugging and webhooks
+  sock.ev.on('messages.upsert', async (m) => {
     const message = m.messages[0];
     if (message && !message.key.fromMe) {
-      console.log(`[${token}] 📨 Received message from ${message.key.remoteJid}:`,
-        message.message?.conversation || 'Non-text message');
+      const messageText = message.message?.conversation ||
+                          message.message?.extendedTextMessage?.text ||
+                          '[Media message]';
+
+      console.log(`[${token}] 📨 Received message from ${message.key.remoteJid}:`, messageText);
+
+      // Trigger webhooks for incoming message
+      try {
+        const webhookPayload = {
+          event: 'message.received',
+          timestamp: new Date().toISOString(),
+          accountToken: token,
+          message: {
+            id: message.key.id || '',
+            from: message.key.remoteJid?.replace('@s.whatsapp.net', '') || '',
+            fromName: message.pushName || 'Unknown',
+            body: messageText,
+            timestamp: new Date(parseInt(message.messageTimestamp as string) * 1000).toISOString(),
+            type: message.message?.conversation ? 'text' :
+                  message.message?.extendedTextMessage ? 'text' :
+                  message.message?.imageMessage ? 'image' :
+                  message.message?.videoMessage ? 'video' :
+                  message.message?.audioMessage ? 'audio' :
+                  message.message?.documentMessage ? 'document' : 'unknown',
+          },
+        };
+
+        // Trigger all registered webhooks for this account
+        await WebhookService.triggerWebhooks(token, webhookPayload);
+      } catch (error) {
+        console.error(`[${token}] Failed to trigger webhooks:`, error);
+      }
     }
   });
 

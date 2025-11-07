@@ -42,6 +42,7 @@ model WhatsAppAccount {
   isConnected   Boolean   @default(false) @map("is_connected")
   createdAt     DateTime  @default(now()) @map("created_at")
   user          User      @relation(fields: [userId], references: [id])
+  webhooks      Webhook[]
 
   @@map("whatsapp_accounts")
 }
@@ -54,4 +55,18 @@ model Session {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   @@map("sessions")
+}
+
+model Webhook {
+  id               Int              @id @default(autoincrement())
+  accountToken     String           @map("account_token") @db.VarChar(100)
+  url              String           @db.VarChar(500)
+  isActive         Boolean          @default(true) @map("is_active")
+  secret           String?          @db.VarChar(100)
+  events           String[]         @default(["message.received"])
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  whatsappAccount  WhatsAppAccount  @relation(fields: [accountToken], references: [accountToken], onDelete: Cascade)
+
+  @@map("webhooks")
 }
