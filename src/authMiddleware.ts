@@ -37,22 +37,22 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
 
     // Validate WhatsApp account connection
     const connectionResult = await WhatsAppAccountService.validateWhatsAppConnection(token);
-    if (!connectionResult.success) {
+    if (!connectionResult.success || !connectionResult.account) {
       return res.status(401).json({
         success: false,
         error: connectionResult.error || 'WhatsApp account validation failed'
       });
     }
 
-    const { account } = connectionResult;
+    const account = connectionResult.account;
 
     // Add account to request for use in routes
     req.account = {
       token: account.accountToken,
       apiKey: user.apiKey,
       userId: user.id,
-      phoneNumber: account.phoneNumber,
-      whatsappName: account.whatsappName,
+      ...(account.phoneNumber !== undefined && { phoneNumber: account.phoneNumber }),
+      ...(account.whatsappName !== undefined && { whatsappName: account.whatsappName }),
       isConnected: account.isConnected,
       createdAt: account.createdAt
     };

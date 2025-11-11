@@ -127,14 +127,14 @@ export async function initializeQRClient(sessionId: string): Promise<void> {
               await prisma.session.create({
                 data: {
                   accountToken: account.token,
-                  authState: tempSession.authState
+                  authState: tempSession.authState as any
                 }
               }).catch(async (err) => {
                 // If already exists, update it
                 if (err.code === 'P2002') {
                   await prisma.session.update({
                     where: { accountToken: account.token },
-                    data: { authState: tempSession.authState }
+                    data: { authState: tempSession.authState as any }
                   });
                 }
               });

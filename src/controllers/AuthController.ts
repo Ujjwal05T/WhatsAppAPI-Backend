@@ -135,8 +135,11 @@ export class AuthController {
         success: true,
         message: 'WhatsApp account creation started',
         account: {
+          id: account.id,
           accountToken: accountToken,
           userId: user.id,
+          isConnected: account.isConnected,
+          createdAt: account.createdAt,
           apiKey: apiKey
         },
         instructions: {
@@ -404,6 +407,25 @@ export class AuthController {
         return;
       }
 
+      // Get authenticated user from middleware
+      const authenticatedUser = (req as any).user;
+      if (!authenticatedUser) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      // Authorization check: Users can only view their own profile
+      if (authenticatedUser.id !== parseInt(userId)) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied: You can only view your own profile'
+        });
+        return;
+      }
+
       const user = await UserService.getUserById(parseInt(userId));
       if (!user) {
         res.status(404).json({
@@ -504,17 +526,39 @@ export class AuthController {
         return;
       }
 
+      // Get authenticated user from middleware
+      const authenticatedUser = (req as any).user;
+      if (!authenticatedUser) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      // Authorization check: Users can only view their own WhatsApp accounts
+      if (authenticatedUser.id !== parseInt(userId)) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied: You can only view your own WhatsApp accounts'
+        });
+        return;
+      }
+
       const accounts = await WhatsAppAccountService.getUserWhatsAppAccounts(parseInt(userId));
 
-      res.status(200).json(accounts.map(account => ({
-        id: account.id,
-        userId: account.userId,
-        accountToken: account.accountToken,
-        phoneNumber: account.phoneNumber,
-        whatsappName: account.whatsappName,
-        isConnected: account.isConnected,
-        createdAt: account.createdAt
-      })));
+      res.status(200).json({
+        success: true,
+        accounts: accounts.map(account => ({
+          id: account.id,
+          userId: account.userId,
+          accountToken: account.accountToken,
+          phoneNumber: account.phoneNumber,
+          whatsappName: account.whatsappName,
+          isConnected: account.isConnected,
+          createdAt: account.createdAt
+        }))
+      });
 
     } catch (error) {
       console.error('Error getting user WhatsApp accounts:', error);
@@ -540,18 +584,40 @@ export class AuthController {
         return;
       }
 
+      // Get authenticated user from middleware
+      const authenticatedUser = (req as any).user;
+      if (!authenticatedUser) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      // Authorization check: Users can only view their own connected WhatsApp accounts
+      if (authenticatedUser.id !== parseInt(userId)) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied: You can only view your own connected WhatsApp accounts'
+        });
+        return;
+      }
+
       const accounts = await WhatsAppAccountService.getUserWhatsAppAccounts(parseInt(userId));
       const connectedAccounts = accounts.filter(account => account.isConnected);
 
-      res.status(200).json(connectedAccounts.map(account => ({
-        id: account.id,
-        userId: account.userId,
-        accountToken: account.accountToken,
-        phoneNumber: account.phoneNumber,
-        whatsappName: account.whatsappName,
-        isConnected: account.isConnected,
-        createdAt: account.createdAt
-      })));
+      res.status(200).json({
+        success: true,
+        accounts: connectedAccounts.map(account => ({
+          id: account.id,
+          userId: account.userId,
+          accountToken: account.accountToken,
+          phoneNumber: account.phoneNumber,
+          whatsappName: account.whatsappName,
+          isConnected: account.isConnected,
+          createdAt: account.createdAt
+        }))
+      });
 
     } catch (error) {
       console.error('Error getting user connected WhatsApp accounts:', error);
@@ -594,6 +660,8 @@ export class AuthController {
       await initializeQRClient(accountToken);
 
       res.status(201).json({
+        success: true,
+        message: 'WhatsApp account created successfully',
         account: {
           id: account.id,
           userId: account.userId,
@@ -602,8 +670,7 @@ export class AuthController {
           whatsappName: account.whatsappName,
           isConnected: account.isConnected,
           createdAt: account.createdAt
-        },
-        accountToken: accountToken
+        }
       });
 
     } catch (error) {

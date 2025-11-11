@@ -12,12 +12,30 @@ import cors from 'cors'
 
 const app = express();
 
-// CORS configuration
+// CORS configuration - dynamically allow origins from environment variable
+const allowedOrigins = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
+  : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+
+console.log('CORS enabled for origins:', allowedOrigins);
+
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, Postman, curl)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.warn(`CORS blocked request from origin: ${origin}`);
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 86400 // 24 hours
 }));
 
 app.use(express.json());
@@ -26,7 +44,7 @@ const PORT = process.env.PORT || 5000;
 
 // Initialize database and accounts on startup
 PrismaService.initialize().then(() => {
-  console.log('✅ Database connected successfully');
+  console.log('Database connected successfully');
   initializeAccounts().catch(console.error);
 }).catch(console.error);
 

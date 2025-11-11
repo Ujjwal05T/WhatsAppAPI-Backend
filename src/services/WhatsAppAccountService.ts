@@ -310,10 +310,12 @@ export class WhatsAppAccountService {
 
     const stats = await WhatsAppAccountModel.getAccountStats(userId);
     const connectedAccounts = await WhatsAppAccountModel.findConnectedByUserId(userId);
-    
+
+    const recentlyConnected = connectedAccounts.length > 0 ? connectedAccounts[0] : undefined;
+
     return {
       ...stats,
-      recentlyConnected: connectedAccounts.length > 0 ? connectedAccounts[0] : undefined
+      ...(recentlyConnected && { recentlyConnected })
     };
   }
 }

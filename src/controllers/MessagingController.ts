@@ -122,6 +122,14 @@ export class MessagingController {
 
         finalMessage = processTemplate(templateContent, templateData);
       } else {
+        // At this point, message must be defined due to earlier validation
+        if (!message) {
+          res.status(400).json({
+            success: false,
+            error: 'Message is required when not using a template'
+          });
+          return;
+        }
         finalMessage = message;
       }
 
