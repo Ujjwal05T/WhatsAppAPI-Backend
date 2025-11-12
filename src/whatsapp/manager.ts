@@ -134,6 +134,17 @@ export async function initializeClient(token: string): Promise<WASocket> {
 
       // Trigger webhooks for incoming message
       try {
+        // Handle messageTimestamp which can be number, Long, null, or undefined
+        let messageTimestamp: number;
+        if (typeof message.messageTimestamp === 'number') {
+          messageTimestamp = message.messageTimestamp;
+        } else if (message.messageTimestamp && typeof message.messageTimestamp === 'object' && 'toNumber' in message.messageTimestamp) {
+          // Handle Long type from Baileys
+          messageTimestamp = (message.messageTimestamp as any).toNumber();
+        } else {
+          messageTimestamp = Date.now() / 1000; // Fallback to current time
+        }
+
         const webhookPayload = {
           event: 'message.received',
           timestamp: new Date().toISOString(),
@@ -143,7 +154,7 @@ export async function initializeClient(token: string): Promise<WASocket> {
             from: message.key.remoteJid?.replace('@s.whatsapp.net', '') || '',
             fromName: message.pushName || 'Unknown',
             body: messageText,
-            timestamp: new Date(parseInt(message.messageTimestamp as string) * 1000).toISOString(),
+            timestamp: new Date(messageTimestamp * 1000).toISOString(),
             type: message.message?.conversation ? 'text' :
                   message.message?.extendedTextMessage ? 'text' :
                   message.message?.imageMessage ? 'image' :
