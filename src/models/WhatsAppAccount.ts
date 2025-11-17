@@ -213,6 +213,18 @@ export class WhatsAppAccountModel {
     }
   }
 
+  // Delete WhatsApp account by account token
+  static async deleteAccount(accountToken: string): Promise<void> {
+    try {
+      await prisma.whatsAppAccount.delete({
+        where: { accountToken },
+      });
+    } catch (error) {
+      console.error('Error in WhatsAppAccount.deleteAccount:', error);
+      throw error;
+    }
+  }
+
   // Get all WhatsApp accounts (for admin purposes)
   static async findAll(limit = 50, offset = 0): Promise<IWhatsAppAccount[]> {
     try {

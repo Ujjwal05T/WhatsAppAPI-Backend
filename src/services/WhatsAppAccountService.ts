@@ -318,4 +318,17 @@ export class WhatsAppAccountService {
       ...(recentlyConnected && { recentlyConnected })
     };
   }
+
+  // Delete WhatsApp account
+  static async deleteWhatsAppAccount(accountToken: string): Promise<void> {
+    if (!accountToken) {
+      throw new Error('Account token is required');
+    }
+
+    // Delete the account from database
+    await WhatsAppAccountModel.deleteAccount(accountToken);
+
+    // TODO: Also delete session data from database
+    // TODO: Disconnect WhatsApp client if connected
+  }
 }

@@ -143,6 +143,13 @@ app.get('/api/whatsapp/connected/:userId', apiKeyMiddleware, AuthController.getU
 app.post('/api/whatsapp/create-account', apiKeyMiddleware, AuthController.createWhatsAppAccount);
 
 /**
+ * @route   DELETE /api/whatsapp/account/:accountToken
+ * @desc    Delete WhatsApp account
+ * @access  Private (Requires API Key)
+ */
+app.delete('/api/whatsapp/account/:accountToken', apiKeyMiddleware, AuthController.deleteWhatsAppAccount);
+
+/**
  * @route   GET /api/whatsapp/qr/:accountToken
  * @desc    Get QR code for WhatsApp account
  * @access  Private (Requires API Key)

@@ -633,6 +633,7 @@ export class AuthController {
   // Create new WhatsApp account for user
   static async createWhatsAppAccount(req: Request, res: Response): Promise<void> {
     try {
+      console.log('📝 [CREATE ACCOUNT] Request received');
       const { userId } = req.body;
 
       if (!userId) {
@@ -654,27 +655,35 @@ export class AuthController {
       }
 
       // Create WhatsApp account for this user
-      const { account, accountToken } = await WhatsAppAccountService.createWhatsAppAccount(parseInt(userId));
+      console.log('✨ Creating WhatsApp account for user:', userId);
+      const result = await WhatsAppAccountService.createWhatsAppAccount(parseInt(userId));
+      console.log('✅ Service returned:', JSON.stringify(result));
+
+      const { account, accountToken } = result;
+      console.log('📦 Account Token:', accountToken);
 
       // Initialize WhatsApp client for this account
       await initializeQRClient(accountToken);
 
-      res.status(201).json({
+      const responsePayload = {
         success: true,
         message: 'WhatsApp account created successfully',
         account: {
           id: account.id,
           userId: account.userId,
           accountToken: accountToken,
-          phoneNumber: account.phoneNumber,
-          whatsappName: account.whatsappName,
+          phoneNumber: account.phoneNumber || null,
+          whatsappName: account.whatsappName || null,
           isConnected: account.isConnected,
           createdAt: account.createdAt
         }
-      });
+      };
+
+      console.log('📤 Sending response:', JSON.stringify(responsePayload));
+      res.status(201).json(responsePayload);
 
     } catch (error) {
-      console.error('Error creating WhatsApp account:', error);
+      console.error('❌ Error creating WhatsApp account:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to create WhatsApp account';
 
       res.status(500).json({
@@ -805,6 +814,67 @@ export class AuthController {
     } catch (error) {
       console.error('Error checking WhatsApp status:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to check WhatsApp status';
+
+      res.status(500).json({
+        success: false,
+        error: errorMessage
+      });
+    }
+  }
+
+  // Delete WhatsApp account
+  static async deleteWhatsAppAccount(req: Request, res: Response): Promise<void> {
+    try {
+      const { accountToken } = req.params;
+
+      if (!accountToken) {
+        res.status(400).json({
+          success: false,
+          error: 'Account token is required'
+        });
+        return;
+      }
+
+      // Get authenticated user from middleware
+      const authenticatedUser = (req as any).user;
+      if (!authenticatedUser) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      // Get the account to verify ownership
+      const account = await WhatsAppAccountService.getWhatsAppAccount(accountToken);
+      if (!account) {
+        res.status(404).json({
+          success: false,
+          error: 'WhatsApp account not found'
+        });
+        return;
+      }
+
+      // Authorization check: Users can only delete their own accounts
+      if (account.userId !== authenticatedUser.id) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied: You can only delete your own accounts'
+        });
+        return;
+      }
+
+      // Delete the account
+      await WhatsAppAccountService.deleteWhatsAppAccount(accountToken);
+
+      res.status(200).json({
+        success: true,
+        message: 'WhatsApp account deleted successfully'
+      });
+
+    } catch (error) {
+      console.error('Error deleting WhatsApp account:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to delete WhatsApp account';
 
       res.status(500).json({
         success: false,
