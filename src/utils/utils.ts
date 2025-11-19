@@ -14,15 +14,102 @@ export const MESSAGE_LIMITS = {
 const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
 
 /**
- * Validates phone number for WhatsApp
+ * Normalizes and validates phone number for WhatsApp
+ * Handles various formats and automatically adds country code if missing
+ *
+ * @param phone - Phone number in any format
+ * @returns Object with normalized number and validation result
+ *
+ * Supported formats:
+ * - "9876543210" → "919876543210" (auto-adds 91 for 10-digit numbers)
+ * - "+919876543210" → "919876543210" (removes +)
+ * - "91 9876543210" → "919876543210" (removes spaces)
+ * - "+91-9876-543210" → "919876543210" (removes + and -)
+ * - "(91) 9876543210" → "919876543210" (removes parentheses)
+ *
+ * Features:
+ * - Removes +, spaces, dashes, parentheses, dots
+ * - If exactly 10 digits, adds 91 prefix (Indian numbers)
+ * - Validates final number is 10-15 digits
+ * - Provides helpful error messages with examples
+ */
+export function normalizeAndValidatePhoneNumber(phone: string): {
+  valid: boolean;
+  normalized?: string;
+  error?: string;
+  original: string;
+} {
+  const original = phone;
+
+  // Check if phone number is provided
+  if (!phone || typeof phone !== 'string') {
+    return {
+      valid: false,
+      error: 'Phone number is required. Example: 9876543210 or +919876543210',
+      original
+    };
+  }
+
+  // Remove all non-digit characters (spaces, +, -, (, ), .)
+  let cleaned = phone.trim().replace(/[\s\-\(\)\+\.]/g, '');
+
+  // If still contains non-digit characters, it's invalid
+  if (!/^\d+$/.test(cleaned)) {
+    return {
+      valid: false,
+      error: 'Phone number contains invalid characters. Use formats like: 9876543210, +919876543210, or 91-9876543210',
+      original
+    };
+  }
+
+  // Handle exactly 10 digits - add Indian country code (91)
+  if (cleaned.length === 10) {
+    console.log(`📞 Auto-adding country code 91 to 10-digit number: ${cleaned} → 91${cleaned}`);
+    cleaned = '91' + cleaned;
+  }
+
+  // Validate length after normalization
+  if (cleaned.length < 10) {
+    return {
+      valid: false,
+      error: `Phone number too short (${cleaned.length} digits). Must be at least 10 digits. Example: 9876543210`,
+      original
+    };
+  }
+
+  if (cleaned.length > 15) {
+    return {
+      valid: false,
+      error: `Phone number too long (${cleaned.length} digits). Maximum 15 digits allowed`,
+      original
+    };
+  }
+
+  // Additional validation: Check if it starts with a valid country code
+  // For Indian numbers, ensure it starts with 91 and has correct length
+  if (cleaned.startsWith('91') && cleaned.length !== 12) {
+    return {
+      valid: false,
+      error: `Invalid Indian phone number (${cleaned.length} digits). Must be 12 digits total: 91 + 10 digit number. Example: 919876543210`,
+      original
+    };
+  }
+
+  return {
+    valid: true,
+    normalized: cleaned,
+    original
+  };
+}
+
+/**
+ * Validates phone number for WhatsApp (legacy function - kept for backward compatibility)
  * Format: Country code + number without spaces or special chars
+ * @deprecated Use normalizeAndValidatePhoneNumber instead
  */
 export function validatePhoneNumber(phone: string): boolean {
-  // Remove any non-digit characters
-  const cleanPhone = phone.replace(/\D/g, '');
-
-  // Check if it's between 10-15 digits (typical international format)
-  return cleanPhone.length >= 10 && cleanPhone.length <= 15;
+  const result = normalizeAndValidatePhoneNumber(phone);
+  return result.valid;
 }
 
 /**

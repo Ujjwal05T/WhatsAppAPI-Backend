@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { validatePhoneNumber, validateMessage, checkRateLimit, formatToJID, humanDelay, processTemplate } from '../utils/index.js';
+import { normalizeAndValidatePhoneNumber, validateMessage, checkRateLimit, formatToJID, humanDelay, processTemplate } from '../utils/index.js';
 import { getClient } from '../whatsapp/index.js';
 import { UserService } from '../services/UserService.js';
 import { WhatsAppAccountService } from '../services/WhatsAppAccountService.js';
@@ -59,14 +59,19 @@ export class MessagingController {
         return;
       }
 
-      // Validate phone number format
-      if (!validatePhoneNumber(to)) {
+      // Normalize and validate phone number format
+      const phoneValidation = normalizeAndValidatePhoneNumber(to);
+      if (!phoneValidation.valid) {
         res.status(400).json({
           success: false,
-          error: 'Invalid phone number format. Use: countrycode+number (e.g., 919876543210)'
+          error: phoneValidation.error,
+          providedNumber: phoneValidation.original
         });
         return;
       }
+
+      // Use normalized phone number
+      const normalizedPhoneNumber = phoneValidation.normalized!;
 
       // Account is already validated by authMiddleware, get account and user from req.account
       const account = req.account;
@@ -143,30 +148,32 @@ export class MessagingController {
         return;
       }
 
-      // Format recipient ID
-      const jid = formatToJID(to);
+      // Format recipient ID using normalized phone number
+      const jid = formatToJID(normalizedPhoneNumber);
 
       // Human-like typing simulation with presence updates
-      console.log(`[${token}] Starting to type message to ${to}...`);
+      console.log(`[${token}] Starting to type message to ${normalizedPhoneNumber} (original: ${to})...`);
       await client.sendPresenceUpdate('composing', jid);
       await humanDelay(); // Random 1-3 second delay
       await client.sendPresenceUpdate('paused', jid);
 
       // Send the message
-      console.log(`[${token}] Sending message to ${to}: ${finalMessage.substring(0, 50)}...`);
+      console.log(`[${token}] Sending message to ${normalizedPhoneNumber}: ${finalMessage.substring(0, 50)}...`);
       const sentMsg = await client.sendMessage(jid, { text: finalMessage });
 
       if (!sentMsg || !sentMsg.key.id) {
         throw new Error('Message sending failed - no message ID returned');
       }
 
-      console.log(`[${token}] Message sent successfully to ${to}. Message ID: ${sentMsg.key.id}`);
+      console.log(`[${token}] Message sent successfully to ${normalizedPhoneNumber}. Message ID: ${sentMsg.key.id}`);
 
       // Success response with additional metadata
       res.status(200).json({
         success: true,
         messageId: sentMsg.key.id,
-        to: to,
+        to: normalizedPhoneNumber,
+        originalNumber: to,
+        normalizedNumber: normalizedPhoneNumber,
         account: {
           token: token,
           user: {
@@ -246,14 +253,19 @@ export class MessagingController {
         return;
       }
 
-      // Validate phone number format
-      if (!validatePhoneNumber(to)) {
+      // Normalize and validate phone number format
+      const phoneValidation = normalizeAndValidatePhoneNumber(to);
+      if (!phoneValidation.valid) {
         res.status(400).json({
           success: false,
-          error: 'Invalid phone number format. Use: countrycode+number (e.g., 919876543210)'
+          error: phoneValidation.error,
+          providedNumber: phoneValidation.original
         });
         return;
       }
+
+      // Use normalized phone number
+      const normalizedPhoneNumber = phoneValidation.normalized!;
 
       // Get account and user
       const account = req.account;
@@ -281,8 +293,8 @@ export class MessagingController {
         return;
       }
 
-      // Format recipient ID
-      const jid = formatToJID(to);
+      // Format recipient ID using normalized phone number
+      const jid = formatToJID(normalizedPhoneNumber);
 
       // Determine media type
       const mediaType = getMediaType(file.mimetype);
@@ -320,7 +332,7 @@ export class MessagingController {
       }
 
       // Send presence update
-      console.log(`[${token}] Sending ${mediaType} to ${to}...`);
+      console.log(`[${token}] Sending ${mediaType} to ${normalizedPhoneNumber} (original: ${to})...`);
       await client.sendPresenceUpdate('composing', jid);
       await humanDelay(); // Random delay
       await client.sendPresenceUpdate('paused', jid);
@@ -332,13 +344,15 @@ export class MessagingController {
         throw new Error('Message sending failed - no message ID returned');
       }
 
-      console.log(`[${token}] ${mediaType} sent successfully to ${to}. Message ID: ${sentMsg.key.id}`);
+      console.log(`[${token}] ${mediaType} sent successfully to ${normalizedPhoneNumber}. Message ID: ${sentMsg.key.id}`);
 
       // Success response
       res.status(200).json({
         success: true,
         messageId: sentMsg.key.id,
-        to: to,
+        to: normalizedPhoneNumber,
+        originalNumber: to,
+        normalizedNumber: normalizedPhoneNumber,
         mediaType: mediaType,
         fileName: file.originalname,
         fileSize: file.size,
