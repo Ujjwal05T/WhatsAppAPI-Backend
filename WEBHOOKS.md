@@ -4,6 +4,8 @@
 
 Webhooks allow you to receive real-time notifications when messages arrive on your WhatsApp account. Your server will receive HTTP POST requests whenever someone sends a message to your WhatsApp number.
 
+> **📎 Media Support:** For detailed information about handling media messages (images, videos, audio, documents) in webhooks, see **[MEDIA_WEBHOOKS.md](./MEDIA_WEBHOOKS.md)**
+
 ---
 
 ## 📋 Quick Start

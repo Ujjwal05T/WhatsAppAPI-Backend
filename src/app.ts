@@ -4,6 +4,7 @@ import { PrismaService } from './config/index.js';
 import { AuthController } from './controllers/AuthController.js';
 import { MessagingController } from './controllers/MessagingController.js';
 import { WebhookController } from './controllers/WebhookController.js';
+import { MediaController } from './controllers/MediaController.js';
 import { authMiddleware } from './authMiddleware.js';
 import { apiKeyMiddleware } from './apiKeyMiddleware.js';
 import { userAuthMiddleware } from './middleware/userAuth.js';
@@ -279,6 +280,25 @@ app.delete('/api/webhooks/:id', apiKeyMiddleware, WebhookController.deleteWebhoo
 app.post('/api/webhooks/:id/test', apiKeyMiddleware, WebhookController.testWebhook);
 
 // =================================================================
+// MEDIA ENDPOINTS
+// =================================================================
+
+/**
+ * @route   GET /api/media/:messageId
+ * @desc    Download media file from a WhatsApp message
+ * @access  Public (message ID acts as authorization)
+ * @note    Media files are stored for 24 hours after receiving
+ */
+app.get('/api/media/:messageId', MediaController.downloadMedia);
+
+/**
+ * @route   GET /api/media-stats
+ * @desc    Get media service statistics
+ * @access  Private (Requires API Key)
+ */
+app.get('/api/media-stats', apiKeyMiddleware, MediaController.getStats);
+
+// =================================================================
 // UTILITY ENDPOINTS
 // =================================================================
 
@@ -299,6 +319,8 @@ app.get('/api/health', (_req, res) => {
       whatsappIntegration: true,
       messageTemplates: true,
       mediaMessages: true,
+      webhooks: true,
+      mediaDownload: true,
       rateLimiting: true,
       databaseStorage: true
     }
@@ -334,6 +356,17 @@ app.get('/api/docs', (_req, res) => {
         'DELETE /api/templates/:name': 'Delete message template',
         'GET /api/account/:token/status': 'Check account status',
         'GET /api/account/:token/messages': 'Get message history'
+      },
+      webhooks: {
+        'POST /api/webhooks/register': 'Register webhook for incoming messages',
+        'GET /api/webhooks/:accountToken': 'Get all webhooks for account',
+        'PATCH /api/webhooks/:id': 'Update webhook',
+        'DELETE /api/webhooks/:id': 'Delete webhook',
+        'POST /api/webhooks/:id/test': 'Test webhook'
+      },
+      media: {
+        'GET /api/media/:messageId': 'Download media file from message (24h expiry)',
+        'GET /api/media-stats': 'Get media service statistics'
       },
       utilities: {
         'GET /api/health': 'Health check',
@@ -378,6 +411,14 @@ app.listen(PORT, () => {
   console.log(`   POST /api/templates - Create message templates`);
   console.log(`   GET  /api/account/:token/status - Check account status`);
   console.log(`   GET  /api/account/:token/messages - Get message history`);
+  console.log(`\n🪝 WEBHOOKS:`);
+  console.log(`   POST /api/webhooks/register - Register webhook for incoming messages`);
+  console.log(`   GET  /api/webhooks/:accountToken - Get webhooks for account`);
+  console.log(`   PATCH /api/webhooks/:id - Update webhook`);
+  console.log(`   DELETE /api/webhooks/:id - Delete webhook`);
+  console.log(`\n📎 MEDIA:`);
+  console.log(`   GET  /api/media/:messageId - Download media from message (24h expiry)`);
+  console.log(`   GET  /api/media-stats - Get media service statistics`);
   console.log(`\n📱 UTILITIES:`);
   console.log(`   GET  /api/health - Health check`);
   console.log(`   GET  /api/docs - API documentation`);

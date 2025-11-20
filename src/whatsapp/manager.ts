@@ -8,6 +8,7 @@ import qrcodeGen from 'qrcode';
 import { Boom } from '@hapi/boom';
 import { useAuthStateFromDB } from './dbAuthState.js';
 import { WebhookService } from '../services/WebhookService.js';
+import { MediaService, mediaStore } from '../services/MediaService.js';
 
 // This map will store active Baileys sockets, with the token as the key.
 export const clients = new Map<string, WASocket>();
@@ -145,7 +146,25 @@ export async function initializeClient(token: string): Promise<WASocket> {
           messageTimestamp = Date.now() / 1000; // Fallback to current time
         }
 
-        const webhookPayload = {
+        // Determine message type
+        const messageType = message.message?.conversation ? 'text' :
+                           message.message?.extendedTextMessage ? 'text' :
+                           message.message?.imageMessage ? 'image' :
+                           message.message?.videoMessage ? 'video' :
+                           message.message?.audioMessage ? 'audio' :
+                           message.message?.documentMessage ? 'document' : 'unknown';
+
+        // Extract media metadata if present
+        const mediaMetadata = MediaService.extractMediaMetadata(message);
+
+        // Store message for media download if it has media
+        if (mediaMetadata.hasMedia && message.key.id) {
+          mediaStore.store(message.key.id, message, token);
+          console.log(`[${token}] 📎 Stored media message ${message.key.id} for download`);
+        }
+
+        // Build webhook payload with media information
+        const webhookPayload: any = {
           event: 'message.received',
           timestamp: new Date().toISOString(),
           accountToken: token,
@@ -153,16 +172,23 @@ export async function initializeClient(token: string): Promise<WASocket> {
             id: message.key.id || '',
             from: message.key.remoteJid?.replace('@s.whatsapp.net', '') || '',
             fromName: message.pushName || 'Unknown',
-            body: messageText,
+            body: mediaMetadata.caption || messageText,
             timestamp: new Date(messageTimestamp * 1000).toISOString(),
-            type: message.message?.conversation ? 'text' :
-                  message.message?.extendedTextMessage ? 'text' :
-                  message.message?.imageMessage ? 'image' :
-                  message.message?.videoMessage ? 'video' :
-                  message.message?.audioMessage ? 'audio' :
-                  message.message?.documentMessage ? 'document' : 'unknown',
+            type: messageType,
           },
         };
+
+        // Add media metadata if present
+        if (mediaMetadata.hasMedia) {
+          webhookPayload.message.media = {
+            mimetype: mediaMetadata.mimetype,
+            filename: mediaMetadata.filename,
+            fileSize: mediaMetadata.fileSize,
+            caption: mediaMetadata.caption,
+            // Provide download URL - webhook consumer can use this to download the media
+            url: `${process.env.API_BASE_URL || 'http://localhost:5000'}${mediaMetadata.mediaUrl}`,
+          };
+        }
 
         // Trigger all registered webhooks for this account
         await WebhookService.triggerWebhooks(token, webhookPayload);
