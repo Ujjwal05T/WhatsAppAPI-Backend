@@ -882,4 +882,101 @@ export class AuthController {
       });
     }
   }
+
+  // Relink WhatsApp account (when disconnected)
+  static async relinkWhatsAppAccount(req: Request, res: Response): Promise<void> {
+    try {
+      const { accountToken } = req.params;
+
+      if (!accountToken) {
+        res.status(400).json({
+          success: false,
+          error: 'Account token is required'
+        });
+        return;
+      }
+
+      // Get authenticated user from middleware
+      const authenticatedUser = (req as any).user;
+      if (!authenticatedUser) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      // Get the account to verify ownership
+      const account = await WhatsAppAccountService.getWhatsAppAccount(accountToken);
+      if (!account) {
+        res.status(404).json({
+          success: false,
+          error: 'WhatsApp account not found'
+        });
+        return;
+      }
+
+      // Authorization check: Users can only relink their own accounts
+      if (account.userId !== authenticatedUser.id) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied: You can only relink your own accounts'
+        });
+        return;
+      }
+
+      // Check if account is already connected
+      if (account.isConnected) {
+        res.status(400).json({
+          success: false,
+          error: 'Account is already connected. No need to relink.',
+          isConnected: true
+        });
+        return;
+      }
+
+      // Store pending session for QR tracking (reuse existing pending session mechanism)
+      const user = await UserService.getUserById(account.userId);
+      if (!user || !user.apiKey) {
+        res.status(500).json({
+          success: false,
+          error: 'Failed to retrieve user API key'
+        });
+        return;
+      }
+
+      storePendingSession(accountToken, user.apiKey);
+
+      // Initialize WhatsApp QR client for relinking
+      await initializeQRClient(accountToken);
+
+      res.status(200).json({
+        success: true,
+        message: 'WhatsApp account relinking started',
+        account: {
+          id: account.id,
+          accountToken: accountToken,
+          phoneNumber: account.phoneNumber,
+          whatsappName: account.whatsappName,
+          isConnected: false
+        },
+        instructions: {
+          step1: 'Scan QR code to reconnect your WhatsApp',
+          step2: 'After successful scan, your WhatsApp account will be reconnected',
+          step3: 'You can then resume sending messages'
+        },
+        qrCodeUrl: `/api/auth/qr-user/${accountToken}`,
+        statusCheckUrl: `/api/auth/user-token-status/${accountToken}`
+      });
+
+    } catch (error) {
+      console.error('Error relinking WhatsApp account:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to relink WhatsApp account';
+
+      res.status(500).json({
+        success: false,
+        error: errorMessage
+      });
+    }
+  }
 }

@@ -9,6 +9,7 @@ import { Boom } from '@hapi/boom';
 import { useAuthStateFromDB } from './dbAuthState.js';
 import { WebhookService } from '../services/WebhookService.js';
 import { MediaService, mediaStore } from '../services/MediaService.js';
+import { WhatsAppAccountService } from '../services/WhatsAppAccountService.js';
 
 // This map will store active Baileys sockets, with the token as the key.
 export const clients = new Map<string, WASocket>();
@@ -82,6 +83,16 @@ export async function initializeClient(token: string): Promise<WASocket> {
           clients.set(token, sock);
           console.log(`[${token}] 📝 Client added to active clients map (Total: ${clients.size})`);
           qrCodes.delete(token); // Clear QR code after successful login
+
+          // Update database to mark account as connected
+          try {
+            const phoneNumber = sock.user?.id?.split(':')[0] || '';
+            const whatsappName = sock.user?.name || 'Unknown';
+            await WhatsAppAccountService.updateWhatsAppConnectionDetails(token, phoneNumber, whatsappName);
+            console.log(`[${token}] ✅ Database updated: marked as connected`);
+          } catch (error) {
+            console.error(`[${token}] ❌ Failed to update database connection status:`, error);
+          }
           break;
 
         case 'close':
@@ -99,6 +110,14 @@ export async function initializeClient(token: string): Promise<WASocket> {
 
           clients.delete(token);
           console.log(`[${token}] 📝 Client removed from active clients map (Total: ${clients.size})`);
+
+          // Update database to mark account as disconnected
+          try {
+            await WhatsAppAccountService.markAsDisconnected(token);
+            console.log(`[${token}] ✅ Database updated: marked as disconnected`);
+          } catch (error) {
+            console.error(`[${token}] ❌ Failed to update database disconnection status:`, error);
+          }
 
           // Reconnect logic
           if (shouldReconnect) {

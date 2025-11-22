@@ -16,7 +16,7 @@ const app = express();
 // CORS configuration - dynamically allow origins from environment variable
 const allowedOrigins = process.env.FRONTEND_URL
   ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
-  : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+  : ['http://localhost:3000','http://localhost:60208', 'http://127.0.0.1:3000'];
 
 console.log('CORS enabled for origins:', allowedOrigins);
 
@@ -149,6 +149,13 @@ app.post('/api/whatsapp/create-account', apiKeyMiddleware, AuthController.create
  * @access  Private (Requires API Key)
  */
 app.delete('/api/whatsapp/account/:accountToken', apiKeyMiddleware, AuthController.deleteWhatsAppAccount);
+
+/**
+ * @route   POST /api/whatsapp/relink/:accountToken
+ * @desc    Relink disconnected WhatsApp account (generates new QR code)
+ * @access  Private (Requires API Key)
+ */
+app.post('/api/whatsapp/relink/:accountToken', apiKeyMiddleware, AuthController.relinkWhatsAppAccount);
 
 /**
  * @route   GET /api/whatsapp/qr/:accountToken
@@ -347,6 +354,15 @@ app.get('/api/docs', (_req, res) => {
         'GET /api/auth/user/:userId/profile': 'Get user profile',
         'GET /api/auth/profile': 'Get user profile by API key (frontend)',
         'GET /api/auth/user/:userId/whatsapp-accounts': 'Get user WhatsApp accounts'
+      },
+      whatsapp: {
+        'GET /api/whatsapp/accounts/:userId': 'Get user WhatsApp accounts',
+        'GET /api/whatsapp/connected/:userId': 'Get connected WhatsApp accounts',
+        'POST /api/whatsapp/create-account': 'Create new WhatsApp account',
+        'DELETE /api/whatsapp/account/:accountToken': 'Delete WhatsApp account',
+        'POST /api/whatsapp/relink/:accountToken': 'Relink disconnected WhatsApp account',
+        'GET /api/whatsapp/qr/:accountToken': 'Get QR code for account',
+        'GET /api/whatsapp/status/:accountToken': 'Check WhatsApp connection status'
       },
       messaging: {
         'POST /api/send-message': 'Send WhatsApp text message',
