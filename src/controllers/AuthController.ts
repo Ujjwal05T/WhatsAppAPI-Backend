@@ -11,10 +11,10 @@ export class AuthController {
       const registrationData: IRegistrationData = req.body;
 
       // Validate input
-      if (!registrationData.name || !registrationData.mobile || !registrationData.password) {
+      if (!registrationData.name || !registrationData.email || !registrationData.mobile || !registrationData.password) {
         res.status(400).json({
           success: false,
-          error: 'Name, mobile number and password are required'
+          error: 'Name, email, mobile number and password are required'
         });
         return;
       }
@@ -28,6 +28,7 @@ export class AuthController {
         user: {
           id: user.id,
           name: user.name,
+          email: user.email,
           mobile: user.mobile,
           role: user.role,
           apiKey: apiKey,
@@ -442,6 +443,7 @@ export class AuthController {
         user: {
           id: user.id,
           name: user.name,
+          email: user.email,
           mobile: user.mobile,
           apiKey: user.apiKey,
           role: user.role,
@@ -492,6 +494,7 @@ export class AuthController {
         user: {
           id: user.id,
           name: user.name,
+          email: user.email,
           mobile: user.mobile,
           apiKey: user.apiKey,
           role: user.role,

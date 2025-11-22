@@ -3,6 +3,7 @@ import { UserModel, IUser, ICreateUserData } from '../models/User.js';
 
 export interface IRegistrationData {
   name: string;
+  email: string;
   mobile: string;
   password: string;
   role?: 'USER' | 'ADMIN';
@@ -66,9 +67,15 @@ export class UserService {
     return await bcrypt.compare(password, hash);
   }
 
+  // Validate email format
+  static validateEmail(email: string): boolean {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  }
+
   // Register new user
   static async registerUser(registrationData: IRegistrationData): Promise<IRegistrationResult> {
-    const { name, mobile, password, role } = registrationData;
+    const { name, email, mobile, password, role } = registrationData;
 
     // Validate name
     if (!name || name.trim().length < 2) {
@@ -76,6 +83,11 @@ export class UserService {
     }
     if (name.length > 100) {
       throw new Error('Name must be less than 100 characters');
+    }
+
+    // Validate email
+    if (!email || !this.validateEmail(email)) {
+      throw new Error('Invalid email format');
     }
 
     // Validate mobile number
@@ -102,6 +114,7 @@ export class UserService {
     // Create user
     const userData: ICreateUserData = {
       name: name.trim(),
+      email: email.trim().toLowerCase(),
       mobile,
       passwordHash,
       apiKey,

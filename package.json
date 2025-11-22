@@ -5,6 +5,7 @@
   "main": "src/app.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "test:email": "npx tsx src/test-email.ts",
     "dev": "npx tsx --env-file=.env --watch  src/app.ts",
     "build": "tsc",
     "start": "node ./build/app.js",
@@ -28,6 +29,7 @@
   "dependencies": {
     "@prisma/client": "^6.0.0",
     "@types/multer": "^2.0.0",
+    "@types/nodemailer": "^7.0.4",
     "@whiskeysockets/baileys": "^7.0.0-rc.6",
     "axios": "^1.13.1",
     "bcrypt": "^6.0.0",
@@ -35,6 +37,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "multer": "^2.0.2",
+    "nodemailer": "^7.0.10",
     "pg": "^8.11.0",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0"

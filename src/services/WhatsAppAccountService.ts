@@ -1,5 +1,6 @@
 import { WhatsAppAccountModel, IWhatsAppAccount, ICreateWhatsAppAccountData } from '../models/WhatsAppAccount.js';
 import { UserService } from './UserService.js';
+import { EmailService } from './EmailService.js';
 
 export interface ICreateWhatsAppAccountResult {
   account: IWhatsAppAccount;
@@ -162,18 +163,48 @@ export class WhatsAppAccountService {
   }
 
   // Mark WhatsApp account as disconnected
-  static async markAsDisconnected(accountToken: string): Promise<boolean> {
+  static async markAsDisconnected(accountToken: string, sendEmail: boolean = false): Promise<boolean> {
     if (!accountToken) {
       throw new Error('Account token is required');
     }
 
-    // Verify account exists
-    const account = await this.getWhatsAppAccount(accountToken);
+    // Get account and user information for email notification
+    const { account, user } = await this.getWhatsAppAccountWithUser(accountToken);
+
     if (!account) {
       throw new Error('WhatsApp account not found');
     }
 
-    return await WhatsAppAccountModel.markAsDisconnected(accountToken);
+    // Check if account was already disconnected (to avoid duplicate emails on reconnection attempts)
+    const wasAlreadyDisconnected = !account.isConnected;
+
+    // Mark as disconnected in database
+    const result = await WhatsAppAccountModel.markAsDisconnected(accountToken);
+
+    // Send email notification ONLY if:
+    // 1. sendEmail flag is true (permanent disconnection)
+    // 2. Account was previously connected (status changed from connected to disconnected)
+    // 3. User has an email address
+    if (sendEmail && !wasAlreadyDisconnected && result && user && user.email) {
+      // Send email asynchronously without waiting for it
+      EmailService.sendDisconnectionNotification(
+        user.email,
+        user.name,
+        account.phoneNumber,
+        account.whatsappName,
+        accountToken
+      ).catch(error => {
+        console.error(`[${accountToken}] ⚠️  Failed to send disconnection email to ${user.email}:`, error);
+      });
+
+      console.log(`[${accountToken}] 📧 Sending disconnection notification email to ${user.email}`);
+    } else if (sendEmail && wasAlreadyDisconnected) {
+      console.log(`[${accountToken}] ℹ️  Account was already disconnected. Skipping duplicate email.`);
+    } else if (!sendEmail) {
+      console.log(`[${accountToken}] ℹ️  Temporary disconnection (will auto-reconnect). Skipping email.`);
+    }
+
+    return result;
   }
 
   // Check if WhatsApp account is connected

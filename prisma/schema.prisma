@@ -21,6 +21,7 @@ enum UserRole {
 model User {
   id              Int                @id @default(autoincrement())
   name            String             @db.VarChar(100)
+  email           String?            @db.VarChar(255)
   mobile          String             @unique @db.VarChar(20)
   passwordHash    String             @map("password_hash") @db.VarChar(255)
   apiKey          String             @unique @map("api_key") @db.VarChar(100)

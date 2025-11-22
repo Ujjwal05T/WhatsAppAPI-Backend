@@ -112,8 +112,10 @@ export async function initializeClient(token: string): Promise<WASocket> {
           console.log(`[${token}] 📝 Client removed from active clients map (Total: ${clients.size})`);
 
           // Update database to mark account as disconnected
+          // Send email notification ONLY for permanent disconnections (logged out)
           try {
-            await WhatsAppAccountService.markAsDisconnected(token);
+            const sendEmailNotification = !shouldReconnect; // Only send email if not reconnecting
+            await WhatsAppAccountService.markAsDisconnected(token, sendEmailNotification);
             console.log(`[${token}] ✅ Database updated: marked as disconnected`);
           } catch (error) {
             console.error(`[${token}] ❌ Failed to update database disconnection status:`, error);

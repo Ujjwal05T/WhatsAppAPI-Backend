@@ -1,6 +1,7 @@
 import express from 'express';
 import { initializeAccounts } from './services/legacyAccountManager.js';
 import { PrismaService } from './config/index.js';
+import { EmailService } from './services/EmailService.js';
 import { AuthController } from './controllers/AuthController.js';
 import { MessagingController } from './controllers/MessagingController.js';
 import { WebhookController } from './controllers/WebhookController.js';
@@ -46,6 +47,20 @@ const PORT = process.env.PORT || 5000;
 // Initialize database and accounts on startup
 PrismaService.initialize().then(() => {
   console.log('Database connected successfully');
+
+  // Verify email service configuration
+  EmailService.verifyConnection()
+    .then(isReady => {
+      if (isReady) {
+        console.log('📧 Email service configured and ready');
+      } else {
+        console.log('⚠️  Email service not configured - disconnection notifications will be skipped');
+      }
+    })
+    .catch(error => {
+      console.error('❌ Email service verification error:', error);
+    });
+
   initializeAccounts().catch(console.error);
 }).catch(console.error);
 
