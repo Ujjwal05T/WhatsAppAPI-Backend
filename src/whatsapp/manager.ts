@@ -15,6 +15,10 @@ import { WhatsAppAccountService } from '../services/WhatsAppAccountService.js';
 export const clients = new Map<string, WASocket>();
 export const qrCodes = new Map<string, string>(); // Store QR codes for web display
 
+// Track recent email notifications to prevent duplicates (accountToken -> timestamp)
+const recentEmailNotifications = new Map<string, number>();
+const EMAIL_COOLDOWN_MS = 60000; // 60 seconds cooldown between emails for same account
+
 /**
  * Generate QR code as base64 for web display
  */
@@ -99,9 +103,15 @@ export async function initializeClient(token: string): Promise<WASocket> {
           const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
           const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
+          // Check if this is a permanent logout (401, 403, etc)
+          const isPermanentLogout = statusCode === DisconnectReason.loggedOut ||
+                                    statusCode === 401 ||
+                                    statusCode === 403;
+
           console.log(`\n[${token}] ❌ Connection closed`);
           console.log(`[${token}] 📊 Status Code: ${statusCode || 'Unknown'}`);
           console.log(`[${token}] 🔁 Will reconnect: ${shouldReconnect ? 'Yes' : 'No'}`);
+          console.log(`[${token}] 🔐 Permanent logout: ${isPermanentLogout ? 'Yes' : 'No'}`);
 
           if (lastDisconnect?.error) {
             console.log(`[${token}] 💥 Error: ${lastDisconnect.error.message}`);
@@ -112,10 +122,28 @@ export async function initializeClient(token: string): Promise<WASocket> {
           console.log(`[${token}] 📝 Client removed from active clients map (Total: ${clients.size})`);
 
           // Update database to mark account as disconnected
-          // Send email notification ONLY for permanent disconnections (logged out)
+          // Send email notification for permanent logouts (401, 403, loggedOut)
           try {
-            const sendEmailNotification = !shouldReconnect; // Only send email if not reconnecting
-            await WhatsAppAccountService.markAsDisconnected(token, sendEmailNotification);
+            // Check email cooldown to prevent duplicate emails
+            const lastEmailTime = recentEmailNotifications.get(token) || 0;
+            const timeSinceLastEmail = Date.now() - lastEmailTime;
+            const isInCooldown = timeSinceLastEmail < EMAIL_COOLDOWN_MS;
+
+            let sendEmailNotification = isPermanentLogout && !isInCooldown; // Send email for permanent logouts if not in cooldown
+            const forceEmail = isPermanentLogout && !isInCooldown; // Force email for permanent logouts even if already disconnected
+
+            if (isPermanentLogout && isInCooldown) {
+              console.log(`[${token}] ⏱️  Email cooldown active (${Math.ceil((EMAIL_COOLDOWN_MS - timeSinceLastEmail) / 1000)}s remaining). Skipping email.`);
+              sendEmailNotification = false;
+            }
+
+            await WhatsAppAccountService.markAsDisconnected(token, sendEmailNotification, forceEmail);
+
+            // Update email timestamp if email was sent
+            if (sendEmailNotification) {
+              recentEmailNotifications.set(token, Date.now());
+            }
+
             console.log(`[${token}] ✅ Database updated: marked as disconnected`);
           } catch (error) {
             console.error(`[${token}] ❌ Failed to update database disconnection status:`, error);

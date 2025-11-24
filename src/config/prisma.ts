@@ -16,9 +16,7 @@ class PrismaService {
   public static getClient(): PrismaClient {
     if (!PrismaService.instance) {
       PrismaService.instance = new PrismaClient({
-        log: process.env.NODE_ENV === 'development'
-          ? ['query', 'info', 'warn', 'error']
-          : ['error'],
+        log: ['error'], // Only log errors, no query logs
       });
 
       console.log('✓ Prisma Client initialized');

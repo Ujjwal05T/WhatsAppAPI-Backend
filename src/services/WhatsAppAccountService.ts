@@ -163,7 +163,7 @@ export class WhatsAppAccountService {
   }
 
   // Mark WhatsApp account as disconnected
-  static async markAsDisconnected(accountToken: string, sendEmail: boolean = false): Promise<boolean> {
+  static async markAsDisconnected(accountToken: string, sendEmail: boolean = false, force: boolean = false): Promise<boolean> {
     if (!accountToken) {
       throw new Error('Account token is required');
     }
@@ -181,11 +181,13 @@ export class WhatsAppAccountService {
     // Mark as disconnected in database
     const result = await WhatsAppAccountModel.markAsDisconnected(accountToken);
 
-    // Send email notification ONLY if:
+    // Send email notification if:
     // 1. sendEmail flag is true (permanent disconnection)
-    // 2. Account was previously connected (status changed from connected to disconnected)
+    // 2. Either: force=true OR account was previously connected (status changed)
     // 3. User has an email address
-    if (sendEmail && !wasAlreadyDisconnected && result && user && user.email) {
+    const shouldSendEmail = sendEmail && (force || !wasAlreadyDisconnected) && result && user && user.email;
+
+    if (shouldSendEmail) {
       // Send email asynchronously without waiting for it
       EmailService.sendDisconnectionNotification(
         user.email,
@@ -198,7 +200,7 @@ export class WhatsAppAccountService {
       });
 
       console.log(`[${accountToken}] 📧 Sending disconnection notification email to ${user.email}`);
-    } else if (sendEmail && wasAlreadyDisconnected) {
+    } else if (sendEmail && wasAlreadyDisconnected && !force) {
       console.log(`[${accountToken}] ℹ️  Account was already disconnected. Skipping duplicate email.`);
     } else if (!sendEmail) {
       console.log(`[${accountToken}] ℹ️  Temporary disconnection (will auto-reconnect). Skipping email.`);
