@@ -190,8 +190,8 @@ export class WhatsAppAccountService {
       EmailService.sendDisconnectionNotification(
         user.email,
         user.name,
-        account.phoneNumber,
-        account.whatsappName,
+        account.phoneNumber || null,
+        account.whatsappName || null,
         accountToken
       ).catch(error => {
         console.error(`[${accountToken}] ⚠️  Failed to send disconnection email to ${user.email}:`, error);
@@ -263,21 +263,6 @@ export class WhatsAppAccountService {
         error: error instanceof Error ? error.message : 'Unknown error occurred'
       };
     }
-  }
-
-  // Delete WhatsApp account
-  static async deleteWhatsAppAccount(accountToken: string): Promise<boolean> {
-    if (!accountToken) {
-      throw new Error('Account token is required');
-    }
-
-    // Get account first
-    const account = await this.getWhatsAppAccount(accountToken);
-    if (!account) {
-      throw new Error('WhatsApp account not found');
-    }
-
-    return await WhatsAppAccountModel.delete(account.id);
   }
 
   // Get WhatsApp account statistics

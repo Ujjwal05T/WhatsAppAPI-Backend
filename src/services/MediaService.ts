@@ -82,51 +82,55 @@ export class MediaService {
 
     // Image message
     if (msg.imageMessage) {
-      return {
+      const result: any = {
         hasMedia: true,
         mediaType: 'image',
-        caption: msg.imageMessage.caption,
         mimetype: msg.imageMessage.mimetype || 'image/jpeg',
-        fileSize: msg.imageMessage.fileLength ? Number(msg.imageMessage.fileLength) : undefined,
         mediaUrl: `/api/media/${message.key.id}`,
       };
+      if (msg.imageMessage.caption) result.caption = msg.imageMessage.caption;
+      if (msg.imageMessage.fileLength) result.fileSize = Number(msg.imageMessage.fileLength);
+      return result;
     }
 
     // Video message
     if (msg.videoMessage) {
-      return {
+      const result: any = {
         hasMedia: true,
         mediaType: 'video',
-        caption: msg.videoMessage.caption,
-        filename: msg.videoMessage.fileName,
         mimetype: msg.videoMessage.mimetype || 'video/mp4',
-        fileSize: msg.videoMessage.fileLength ? Number(msg.videoMessage.fileLength) : undefined,
         mediaUrl: `/api/media/${message.key.id}`,
       };
+      if (msg.videoMessage.caption) result.caption = msg.videoMessage.caption;
+      if ((msg.videoMessage as any).fileName) result.filename = (msg.videoMessage as any).fileName;
+      if (msg.videoMessage.fileLength) result.fileSize = Number(msg.videoMessage.fileLength);
+      return result;
     }
 
     // Audio message
     if (msg.audioMessage) {
-      return {
+      const result: any = {
         hasMedia: true,
         mediaType: 'audio',
         mimetype: msg.audioMessage.mimetype || 'audio/ogg; codecs=opus',
-        fileSize: msg.audioMessage.fileLength ? Number(msg.audioMessage.fileLength) : undefined,
         mediaUrl: `/api/media/${message.key.id}`,
       };
+      if (msg.audioMessage.fileLength) result.fileSize = Number(msg.audioMessage.fileLength);
+      return result;
     }
 
     // Document message
     if (msg.documentMessage) {
-      return {
+      const result: any = {
         hasMedia: true,
         mediaType: 'document',
-        caption: msg.documentMessage.caption,
-        filename: msg.documentMessage.fileName,
         mimetype: msg.documentMessage.mimetype || 'application/octet-stream',
-        fileSize: msg.documentMessage.fileLength ? Number(msg.documentMessage.fileLength) : undefined,
         mediaUrl: `/api/media/${message.key.id}`,
       };
+      if (msg.documentMessage.caption) result.caption = msg.documentMessage.caption;
+      if (msg.documentMessage.fileName) result.filename = msg.documentMessage.fileName;
+      if (msg.documentMessage.fileLength) result.fileSize = Number(msg.documentMessage.fileLength);
+      return result;
     }
 
     return { hasMedia: false };
@@ -176,20 +180,22 @@ export class MediaService {
         filename = `image_${messageId}.${mimetype.split('/')[1]}`;
       } else if (msg?.videoMessage) {
         mimetype = msg.videoMessage.mimetype || 'video/mp4';
-        filename = msg.videoMessage.fileName || `video_${messageId}.${mimetype.split('/')[1]}`;
+        filename = (msg.videoMessage as any).fileName || `video_${messageId}.${mimetype.split('/')[1]}`;
       } else if (msg?.audioMessage) {
         mimetype = msg.audioMessage.mimetype || 'audio/ogg';
-        filename = `audio_${messageId}.${mimetype.split('/')[1].split(';')[0]}`;
+        const extension = mimetype.split('/')[1]?.split(';')[0] || 'ogg';
+        filename = `audio_${messageId}.${extension}`;
       } else if (msg?.documentMessage) {
         mimetype = msg.documentMessage.mimetype || 'application/octet-stream';
         filename = msg.documentMessage.fileName || `document_${messageId}`;
       }
 
-      return {
+      const result: any = {
         buffer,
         mimetype,
-        filename,
       };
+      if (filename) result.filename = filename;
+      return result;
     } catch (error) {
       console.error(`[MediaService] Failed to download media for message ${messageId}:`, error);
       return null;
