@@ -11,11 +11,6 @@ import { apiKeyMiddleware } from './apiKeyMiddleware.js';
 import { userAuthMiddleware } from './middleware/userAuth.js';
 import { upload } from './middleware/upload.js';
 import cors from 'cors'
-import { setupGlobalErrorHandlers } from './errorHandlers.js';
-
-
-// Initialize global error handlers to prevent server crashes
-setupGlobalErrorHandlers();
 
 const app = express();
 

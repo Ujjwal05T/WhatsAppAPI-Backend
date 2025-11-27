@@ -37,21 +37,23 @@ async function generateQRBase64(qrString: string): Promise<string> {
 export async function initializeClient(token: string): Promise<WASocket> {
   console.log(`[${token}] Initializing WhatsApp client...`);
 
-  // Use database-based auth state instead of file-based
-  const { state, saveCreds } = await useAuthStateFromDB(token);
+  try {
+    // Use database-based auth state instead of file-based
+    const { state, saveCreds } = await useAuthStateFromDB(token);
 
-  const sock = makeWASocket({
-    auth: state,
-    printQRInTerminal: true, // Enable built-in QR printing
-    browser: ['WhatsApp API', 'Chrome', '10.0'], // Custom browser signature
-    connectTimeoutMs: 60000, // 60 seconds timeout
-    qrTimeout: 60000, // QR code timeout
-    defaultQueryTimeoutMs: undefined, // No query timeout for better reliability
-    keepAliveIntervalMs: 25000, // Keep alive every 25 seconds
-  });
+    const sock = makeWASocket({
+      auth: state,
+      printQRInTerminal: true, // Enable built-in QR printing
+      browser: ['WhatsApp API', 'Chrome', '10.0'], // Custom browser signature
+      connectTimeoutMs: 60000, // 60 seconds timeout
+      qrTimeout: 60000, // QR code timeout
+      defaultQueryTimeoutMs: undefined, // No query timeout for better reliability
+      keepAliveIntervalMs: 25000, // Keep alive every 25 seconds
+    });
 
-  // Enhanced connection event handling
-  sock.ev.on('connection.update', async (update: Partial<BaileysEventMap['connection.update']>) => {
+    // Enhanced connection event handling with error handling
+    sock.ev.on('connection.update', async (update: Partial<BaileysEventMap['connection.update']>) => {
+      try {
     const { connection, lastDisconnect, qr, isNewLogin } = update;
 
     // QR Code handling
@@ -167,6 +169,10 @@ export async function initializeClient(token: string): Promise<WASocket> {
     if (isNewLogin) {
       console.log(`[${token}] 🎉 New login detected!`);
     }
+      } catch (error) {
+        console.error(`[${token}] ❌ Error in connection.update handler:`, error);
+        // Don't crash, just log the error
+      }
   });
 
   // Credentials update event
@@ -247,14 +253,19 @@ export async function initializeClient(token: string): Promise<WASocket> {
     }
   });
 
-  // Add socket error handling
-  if (sock.ws) {
-    sock.ws.on('error', (error) => {
-      console.error(`[${token}] 🌐 WebSocket error:`, error.message);
-    });
-  }
+    // Add socket error handling
+    if (sock.ws) {
+      sock.ws.on('error', (error) => {
+        console.error(`[${token}] 🌐 WebSocket error:`, error.message);
+        // Don't crash, just log the error
+      });
+    }
 
-  return sock;
+    return sock;
+  } catch (error) {
+    console.error(`[${token}] ❌ Fatal error initializing WhatsApp client:`, error);
+    throw error; // Re-throw to let caller handle it
+  }
 }
 
 export function getClient(token: string): WASocket | undefined {
